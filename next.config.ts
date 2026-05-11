@@ -1,26 +1,38 @@
 import type { NextConfig } from "next";
 
+const enableUploadBox = process.env.NEXT_PUBLIC_ENABLE_UPLOAD_BOX !== "false";
+const enableLibraryReview = process.env.NEXT_PUBLIC_ENABLE_LIBRARY_REVIEW === "true";
+const clipsPath = process.env.LIBRARY_CLIPS_PATH || "not configured";
+const port = process.env.PORT || 3000;
+
+console.log("\n=========================================");
+console.log("🚗 ExportDash Configuration");
+console.log(`📡 Listening on: http://localhost:${port}`);
+console.log(`📤 Upload Box Enabled: ${enableUploadBox}`);
+console.log(`📂 Library Review Enabled: ${enableLibraryReview}`);
+if (enableLibraryReview) {
+  console.log(`📁 Library Clips Path: ${clipsPath}`);
+}
+console.log("=========================================\n");
+
 const nextConfig: NextConfig = {
-  output: "export",
+  // The library feature serves clips from server-side API routes, so the app
+  // ships as a standalone Node server rather than a static export.
+  output: "standalone",
   images: {
     unoptimized: true,
   },
-  // Dev-only: proxy the Tesla decryption-key endpoint through the dev server so
-  // the browser makes a same-origin request (no CORS). In production the app is
-  // static (`output: "export"`), so this rewrite is omitted from the build and
-  // nginx performs the same proxy (see nginx.conf `/tesla-decrypt/`).
-  ...(process.env.NODE_ENV === "development"
-    ? {
-        async rewrites() {
-          return [
-            {
-              source: "/tesla-decrypt/:path*",
-              destination: "https://dashcam.tesla.com/:path*",
-            },
-          ];
-        },
-      }
-    : {}),
+  // Proxy the Tesla decryption-key endpoint through the app server so the
+  // browser makes a same-origin request (no CORS). This works in development
+  // and in the standalone production container.
+  async rewrites() {
+    return [
+      {
+        source: "/tesla-decrypt/:path*",
+        destination: "https://dashcam.tesla.com/:path*",
+      },
+    ];
+  },
 };
 
 export default nextConfig;

@@ -344,13 +344,16 @@ export function VideoPlayer({
 
     const urls: Record<string, string> = {};
     for (const video of currentMoment.videos) {
-      urls[video.angle] = URL.createObjectURL(video.file);
+      urls[video.angle] = video.url || URL.createObjectURL(video.file!);
     }
     // eslint-disable-next-line react-hooks/set-state-in-effect -- see the note above: the object URLs are an external resource
     setVideoUrls(urls);
 
     return () => {
-      Object.values(urls).forEach(url => URL.revokeObjectURL(url));
+      Object.entries(urls).forEach(([angle, url]) => {
+        const v = currentMoment.videos.find(v => v.angle === angle);
+        if (v?.file) URL.revokeObjectURL(url);
+      });
     };
   }, [currentMoment?.id]);
 
@@ -368,13 +371,16 @@ export function VideoPlayer({
     const nextMoment = sequence.moments[currentMomentIndex + 1];
     const urls: Record<string, string> = {};
     for (const video of nextMoment.videos) {
-      urls[video.angle] = URL.createObjectURL(video.file);
+      urls[video.angle] = video.url || URL.createObjectURL(video.file!);
     }
     // eslint-disable-next-line react-hooks/set-state-in-effect -- see the note above: the object URLs are an external resource
     setPreloadedUrls(urls);
 
     return () => {
-      Object.values(urls).forEach(url => URL.revokeObjectURL(url));
+      Object.entries(urls).forEach(([angle, url]) => {
+        const v = nextMoment.videos.find(v => v.angle === angle);
+        if (v?.file) URL.revokeObjectURL(url);
+      });
     };
   }, [sequence?.id, currentMomentIndex]);
 
