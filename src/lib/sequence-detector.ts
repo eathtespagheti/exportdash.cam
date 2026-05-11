@@ -19,25 +19,27 @@ import {
   getReasonLabel,
   ANGLE_LABELS,
   ANGLE_ORDER,
+  VirtualFile,
 } from '@/types/video';
 
 /** Gap threshold in seconds - clips within this gap are considered consecutive */
 const SEQUENCE_GAP_THRESHOLD_SECONDS = 65;
 
 /** Get video duration using HTMLVideoElement */
-async function getVideoDuration(file: File): Promise<number> {
+async function getVideoDuration(file: File | VirtualFile): Promise<number> {
   return new Promise((resolve) => {
-    const url = URL.createObjectURL(file);
+    const isVirtual = 'url' in file && !!file.url;
+    const url = isVirtual ? file.url! : URL.createObjectURL(file as File);
     const video = document.createElement('video');
     video.preload = 'metadata';
 
     video.onloadedmetadata = () => {
-      URL.revokeObjectURL(url);
+      if (!isVirtual) URL.revokeObjectURL(url);
       resolve(video.duration && isFinite(video.duration) ? video.duration : 60);
     };
 
     video.onerror = () => {
-      URL.revokeObjectURL(url);
+      if (!isVirtual) URL.revokeObjectURL(url);
       resolve(60); // Default to 60 seconds if metadata fails
     };
 
@@ -46,9 +48,9 @@ async function getVideoDuration(file: File): Promise<number> {
 }
 
 /** Parse an event.json file into a TeslaEvent */
-async function parseEventJson(file: File): Promise<TeslaEvent | null> {
+async function parseEventJson(file: File | VirtualFile): Promise<TeslaEvent | null> {
   try {
-    const text = await file.text();
+    const text = typeof file.text === 'function' ? await file.text() : await (file as File).text();
     const data = JSON.parse(text);
     if (!data.timestamp || !data.reason) return null;
 
@@ -76,12 +78,12 @@ async function parseEventJson(file: File): Promise<TeslaEvent | null> {
  * Also parses any event.json files found alongside the videos.
  */
 export async function processFilesToMoments(
-  files: File[],
+  files: (File | VirtualFile)[],
   onProgress?: (progress: ProcessingProgress) => void
 ): Promise<{ moments: VideoMoment[]; events: TeslaEvent[] }> {
   // Separate JSON files from MP4 files
-  const videoFiles: File[] = [];
-  const jsonFiles: File[] = [];
+  const videoFiles: (File | VirtualFile)[] = [];
+  const jsonFiles: (File | VirtualFile)[] = [];
   for (const file of files) {
     if (file.name.toLowerCase() === 'event.json') {
       jsonFiles.push(file);
@@ -98,7 +100,7 @@ export async function processFilesToMoments(
   }
 
   // Group video files by timestamp
-  const groups: Record<string, { file: File; angle: string | null; timestamp: Date | null }[]> = {};
+  const groups: Record<string, { file: File | VirtualFile; angle: string | null; timestamp: Date | null }[]> = {};
 
   onProgress?.({
     stage: 'scanning',
@@ -144,8 +146,10 @@ export async function processFilesToMoments(
 
         const duration = await getVideoDuration(file);
 
+        const isVirtual = 'url' in file && !!file.url;
+        
         return {
-          file,
+          ...(isVirtual ? { url: file.url } : { file: file as File }),
           angle: angle || 'unknown',
           angleLabel: angle ? ANGLE_LABELS[angle] : 'Unknown',
           duration,

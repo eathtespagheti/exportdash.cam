@@ -1,13 +1,16 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, Suspense } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { DropZone } from '@/components/DropZone';
 import { VideoPlayer } from '@/components/VideoPlayer';
 import { LoadingScreen } from '@/components/LoadingScreen';
 import { VideoSequence, ProcessingProgress } from '@/types/video';
 import { processFilesToMoments, detectSequences } from '@/lib/sequence-detector';
+import { useConfig } from '@/components/ConfigProvider';
 
-export default function Home() {
+function HomeContent() {
   const [sequences, setSequences] = useState<VideoSequence[]>([]);
   const [selectedSequence, setSelectedSequence] = useState<VideoSequence | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -17,7 +20,12 @@ export default function Home() {
     total: 0,
   });
 
-  const handleFilesAdded = useCallback(async (newFiles: File[]) => {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
+  const { enableLibraryReview } = useConfig();
+
+  const handleFilesAdded = useCallback(async (newFiles: File[] | any[]) => {
     if (newFiles.length === 0) return;
 
     // Start processing
@@ -31,7 +39,7 @@ export default function Home() {
 
     try {
       // Process files into moments (also parses event.json files)
-      const { moments, events } = await processFilesToMoments(newFiles, setProcessingProgress);
+      const { moments, events } = await processFilesToMoments(newFiles as File[], setProcessingProgress);
 
       // Detect sequences from moments, matching events to sequences
       const detectedSequences = detectSequences(moments, events);
@@ -59,10 +67,54 @@ export default function Home() {
   const handleClear = useCallback(() => {
     setSequences([]);
     setSelectedSequence(null);
-  }, []);
+    router.replace('/');
+  }, [router]);
+
+  useEffect(() => {
+    const folder = searchParams.get('folder');
+    if (folder) {
+      // Auto-load from server
+      setIsProcessing(true);
+      setProcessingProgress({
+        stage: 'scanning',
+        current: 0,
+        total: 0,
+        message: 'Loading from library...',
+      });
+
+      fetch(`/api/clips?folder=${encodeURIComponent(folder)}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.error) throw new Error(data.error);
+          if (!data.files || data.files.length === 0) throw new Error('No supported files found');
+          
+          const virtualFiles = data.files.map((file: any) => ({
+            name: file.name,
+            size: file.size,
+            url: file.url,
+            text: file.name.toLowerCase() === 'event.json' ? async () => {
+              const res = await fetch(file.url);
+              return res.text();
+            } : undefined
+          }));
+          
+          handleFilesAdded(virtualFiles);
+        })
+        .catch(err => {
+          console.error(err);
+          setProcessingProgress({
+            stage: 'error',
+            current: 0,
+            total: 0,
+            message: err.message || 'Failed to load folder',
+          });
+          setIsProcessing(false);
+        });
+    }
+  }, [searchParams, handleFilesAdded]);
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
+    <>
       {/* Loading Screen */}
       {isProcessing && <LoadingScreen progress={processingProgress} />}
 
@@ -72,6 +124,24 @@ export default function Home() {
           /* Empty State */
           <div className="max-w-4xl mx-auto">
             <DropZone onFilesAdded={handleFilesAdded} hasVideos={false} />
+
+            {/* Fancy Library Review Entry Point */}
+            {enableLibraryReview && (
+              <Link
+                href="/library"
+                className="group mt-8 relative flex flex-col items-center justify-center p-8 overflow-hidden rounded-2xl border border-blue-500/30 bg-gradient-to-br from-gray-900 to-gray-800 hover:from-blue-900/40 hover:to-purple-900/40 hover:border-blue-500/50 transition-all duration-300"
+              >
+                <div className="relative z-10 w-16 h-16 rounded-full bg-blue-500/20 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                  <svg className="w-8 h-8 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                  </svg>
+                </div>
+                <h3 className="relative z-10 text-2xl font-bold text-white mb-2">Browse Dashcam Library</h3>
+                <p className="relative z-10 text-gray-400 group-hover:text-blue-200/80 text-center max-w-md transition-colors">
+                  Review and export your previously saved Tesla clips directly from your configured library folder.
+                </p>
+              </Link>
+            )}
 
             {/* Features */}
             <div className="mt-12 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -298,6 +368,16 @@ export default function Home() {
           />
         )}
       </main>
+    </>
+  );
+}
+
+export default function Home() {
+  return (
+    <div className="min-h-screen bg-gray-950 text-white">
+      <Suspense fallback={<div className="min-h-screen bg-gray-950 text-white flex items-center justify-center">Loading...</div>}>
+        <HomeContent />
+      </Suspense>
     </div>
   );
 }

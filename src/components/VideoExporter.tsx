@@ -618,19 +618,29 @@ export function VideoExporter({
     };
 
     // Helper to load a video file into a specific video element
-    const loadVideoInto = (videoEl: HTMLVideoElement, file: File, prevUrl: string | null): Promise<string> => {
+    const loadVideoInto = (videoEl: HTMLVideoElement, video: import('@/types/video').CameraVideo, prevUrl: string | null): Promise<string | null> => {
       return new Promise((resolve, reject) => {
         if (prevUrl) URL.revokeObjectURL(prevUrl);
-        const url = URL.createObjectURL(file);
+        let url: string;
+        let isBlob = false;
+        if (video.url) {
+          url = video.url;
+        } else if (video.file) {
+          url = URL.createObjectURL(video.file);
+          isBlob = true;
+        } else {
+          return reject(new Error('No file or URL'));
+        }
+        
         videoEl.src = url;
-        videoEl.onloadedmetadata = () => resolve(url);
-        videoEl.onerror = () => reject(new Error(`Failed to load ${file.name}`));
+        videoEl.onloadedmetadata = () => resolve(isBlob ? url : null);
+        videoEl.onerror = () => reject(new Error(`Failed to load video`));
       });
     };
 
     // Helper to load a video file (main video)
-    const loadVideo = async (file: File): Promise<void> => {
-      currentBlobUrl = await loadVideoInto(tempVideo, file, currentBlobUrl);
+    const loadVideo = async (video: import('@/types/video').CameraVideo): Promise<void> => {
+      currentBlobUrl = await loadVideoInto(tempVideo, video, currentBlobUrl);
     };
 
     // Helper to seek a video element
@@ -652,7 +662,7 @@ export function VideoExporter({
       // Get first clip to determine dimensions
       const firstMoment = sequence.moments[0];
       const firstVideo = firstMoment.videos.find(v => v.angle === selectedAngle) || firstMoment.videos[0];
-      await loadVideo(firstVideo.file);
+      await loadVideo(firstVideo);
 
       const srcWidth = tempVideo.videoWidth || 1280;
       const srcHeight = tempVideo.videoHeight || 720;
@@ -684,13 +694,13 @@ export function VideoExporter({
         if (pillarVideo) {
           const pv = document.createElement('video');
           pv.muted = true;
-          const pvUrl = URL.createObjectURL(pillarVideo.file);
+          const pvUrl = pillarVideo.url || URL.createObjectURL(pillarVideo.file!);
           await new Promise<void>((resolve) => {
             pv.onloadedmetadata = () => { pillarW = pv.videoWidth; pillarH = pv.videoHeight; resolve(); };
             pv.onerror = () => resolve();
             pv.src = pvUrl;
           });
-          URL.revokeObjectURL(pvUrl);
+          if (!pillarVideo.url) URL.revokeObjectURL(pvUrl);
         }
         // 3 videos side by side, each at same height
         const cellW = pillarW;
@@ -882,7 +892,7 @@ export function VideoExporter({
           const needReload = currentLoadedClipIdx !== clipIdx || currentLoadedAngle !== mainSlotAngle;
           if (needReload) {
             const video = moment.videos.find(v => v.angle === mainSlotAngle) || moment.videos[0];
-            await loadVideo(video.file);
+            await loadVideo(video);
             currentLoadedClipIdx = clipIdx;
             currentLoadedAngle = video.angle;
           }
@@ -896,7 +906,7 @@ export function VideoExporter({
             const video = moment.videos.find(v => v.angle === angle);
             if (!video) continue;
             if (ev.loadedClipIdx !== clipIdx) {
-              ev.blobUrl = await loadVideoInto(ev.el, video.file, ev.blobUrl);
+              ev.blobUrl = await loadVideoInto(ev.el, video, ev.blobUrl);
               ev.loadedClipIdx = clipIdx;
             }
             await seekVideoEl(ev.el, localTime);
@@ -978,7 +988,7 @@ export function VideoExporter({
             const video = moment.videos.find(v => v.angle === angle) || moment.videos[0];
 
             if (ev.loadedClipIdx !== clipIdx) {
-              ev.blobUrl = await loadVideoInto(ev.el, video.file, ev.blobUrl);
+              ev.blobUrl = await loadVideoInto(ev.el, video, ev.blobUrl);
               ev.loadedClipIdx = clipIdx;
             }
             await seekVideoEl(ev.el, localTime);
@@ -1006,7 +1016,7 @@ export function VideoExporter({
           const needReload = currentLoadedClipIdx !== clipIdx || currentLoadedAngle !== frameAngle;
           if (needReload) {
             const video = moment.videos.find(v => v.angle === frameAngle) || moment.videos[0];
-            await loadVideo(video.file);
+            await loadVideo(video);
             currentLoadedClipIdx = clipIdx;
             currentLoadedAngle = video.angle;
           }
@@ -1019,7 +1029,7 @@ export function VideoExporter({
             const video = moment.videos.find(v => v.angle === angle);
             if (!video) continue;
             if (ev.loadedClipIdx !== clipIdx) {
-              ev.blobUrl = await loadVideoInto(ev.el, video.file, ev.blobUrl);
+              ev.blobUrl = await loadVideoInto(ev.el, video, ev.blobUrl);
               ev.loadedClipIdx = clipIdx;
             }
             await seekVideoEl(ev.el, localTime);
@@ -1105,7 +1115,7 @@ export function VideoExporter({
           const needReload = currentLoadedClipIdx !== clipIdx || currentLoadedAngle !== frameAngle;
           if (needReload) {
             const video = moment.videos.find(v => v.angle === frameAngle) || moment.videos[0];
-            await loadVideo(video.file);
+            await loadVideo(video);
             currentLoadedClipIdx = clipIdx;
             currentLoadedAngle = video.angle;
           }

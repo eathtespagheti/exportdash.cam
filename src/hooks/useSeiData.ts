@@ -86,16 +86,25 @@ export function useSeiData(
           // Find the front video (preferred) or first available video
           const frontVideo = moment.videos.find(v => v.angle === 'front');
           const videoFile = frontVideo?.file || moment.videos[0]?.file;
+          const videoUrl = frontVideo?.url || moment.videos[0]?.url;
 
-          if (!videoFile) {
-            console.warn(`[SEI] No video file found for moment ${momentIdx}`);
+          if (!videoFile && !videoUrl) {
+            console.warn(`[SEI] No video file or URL found for moment ${momentIdx}`);
             cumulativeFrameOffset += Math.round(moment.duration * sequenceFps);
             continue;
           }
 
           try {
-            console.log(`[SEI] Processing moment ${momentIdx}: ${videoFile.name}`);
-            const arrayBuffer = await videoFile.arrayBuffer();
+            console.log(`[SEI] Processing moment ${momentIdx}: ${videoFile?.name || videoUrl}`);
+            
+            let arrayBuffer: ArrayBuffer;
+            if (videoFile) {
+              arrayBuffer = await videoFile.arrayBuffer();
+            } else {
+              const res = await fetch(videoUrl!);
+              arrayBuffer = await res.arrayBuffer();
+            }
+            
             const mp4 = new DashcamMP4(arrayBuffer);
 
             // Get FPS from first valid video
@@ -178,7 +187,7 @@ export function useSeiData(
         lastSequenceIdRef.current = sequence.id;
 
         if (allMessages.length === 0) {
-          setError('No Tesla metadata found in this video. Make sure this is a Tesla dashcam recording.');
+          setError('No telemetry data found. This is normal for Sentry Mode clips or older recordings.');
         }
       } catch (err) {
         console.error('[SEI] Error extracting SEI:', err);

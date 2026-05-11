@@ -7,3 +7,5 @@ Dockerfile
 *.md
 .env*
 .DS_Store
+clips
+docker-compose.yml

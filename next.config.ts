@@ -1,7 +1,22 @@
 import type { NextConfig } from "next";
 
+const enableUploadBox = process.env.NEXT_PUBLIC_ENABLE_UPLOAD_BOX !== 'false';
+const enableLibraryReview = process.env.NEXT_PUBLIC_ENABLE_LIBRARY_REVIEW === 'true';
+const clipsPath = process.env.LIBRARY_CLIPS_PATH || 'not configured';
+const port = process.env.PORT || 3000;
+
+console.log('\n=========================================');
+console.log('🚗 ExportDash Configuration');
+console.log(`📡 Listening on: http://localhost:${port}`);
+console.log(`📤 Upload Box Enabled: ${enableUploadBox}`);
+console.log(`📂 Library Review Enabled: ${enableLibraryReview}`);
+if (enableLibraryReview) {
+  console.log(`📁 Library Clips Path: ${clipsPath}`);
+}
+console.log('=========================================\n');
+
 const nextConfig: NextConfig = {
-  output: "export",
+  output: "standalone",
   images: {
     unoptimized: true,
   },

@@ -6,9 +6,19 @@
  * - VideoSequence: Consecutive moments merged for seamless playback
  */
 
+/** A virtual file from the library */
+export interface VirtualFile {
+  name: string;
+  size: number;
+  url?: string;
+  file?: File;
+  text?: () => Promise<string>;
+}
+
 /** A single camera angle video file */
 export interface CameraVideo {
-  file: File;
+  file?: File;
+  url?: string;            // URL for library-hosted videos
   angle: string;           // e.g., 'front', 'back', 'left_repeater'
   angleLabel: string;      // Human-readable label
   duration: number;        // Duration in seconds

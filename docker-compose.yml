@@ -1,6 +1,13 @@
 services:
   app:
     build: .
+    image: exportdashcam:latest
     ports:
-      - "8080:80"
+      - 3000:3000
     restart: unless-stopped
+    volumes:
+      - ./clips:/app/clips:ro
+    environment:
+      LIBRARY_CLIPS_PATH: /app/clips
+      NEXT_PUBLIC_ENABLE_UPLOAD_BOX: false
+      NEXT_PUBLIC_ENABLE_LIBRARY_REVIEW: true
