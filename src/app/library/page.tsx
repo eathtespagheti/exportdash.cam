@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { useConfig } from '@/components/ConfigProvider';
 
@@ -11,6 +11,7 @@ interface LibraryEvent {
   date: string;
   timestamp: string | null;
   thumbUrl: string | null;
+  videoUrl: string | null;
   videoCount: number;
   type: string;
   reason: string;
@@ -39,12 +40,127 @@ function getTimeOfDay(date: Date) {
   return 'Night';
 }
 
+function HoverScrubber({ event, isEnabled }: { event: LibraryEvent, isEnabled: boolean }) {
+  const [isHovered, setIsHovered] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!videoRef.current || isNaN(videoRef.current.duration)) return;
+    const duration = videoRef.current.duration;
+    
+    // Calculate event offset based on timestamp vs folder timestamp
+    let eventOffset = duration / 2;
+    if (event.timestamp) {
+      const folderMatch = event.folderPath.match(/(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})/);
+      if (folderMatch) {
+        const [date, time] = folderMatch[1].split('_');
+        const [y, m, d] = date.split('-');
+        const [h, min, s] = time.split('-');
+        const folderDate = new Date(`${y}-${m}-${d}T${h}:${min}:${s}`);
+        const eventDate = new Date(event.timestamp);
+        const diff = (eventDate.getTime() - folderDate.getTime()) / 1000;
+        // Folder name usually denotes the end of the clip
+        eventOffset = duration + diff;
+        if (eventOffset < 0 || eventOffset > duration) eventOffset = duration / 2;
+      }
+    }
+    
+    // 30s window (15s before, 15s after)
+    const start = Math.max(0, eventOffset - 15);
+    const end = Math.min(duration, eventOffset + 15);
+    
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    
+    videoRef.current.currentTime = start + x * (end - start);
+  };
+  
+  if (!isEnabled || !event.videoUrl) {
+    return (
+      <div className="w-full h-full relative overflow-hidden group">
+        {event.thumbUrl ? (
+          <img src={event.thumbUrl} alt={event.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-gray-600 bg-gray-800">No Preview</div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div 
+      className="w-full h-full relative overflow-hidden group"
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => { setIsHovered(false); if(videoRef.current) videoRef.current.pause(); }}
+      onMouseMove={handleMouseMove}
+    >
+      {event.thumbUrl && (
+        <img 
+          src={event.thumbUrl} 
+          alt={event.title} 
+          className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${isHovered ? 'opacity-0' : 'opacity-100 group-hover:scale-105'}`} 
+        />
+      )}
+      {isHovered && (
+        <video 
+          ref={videoRef}
+          src={event.videoUrl}
+          muted
+          playsInline
+          className="absolute inset-0 w-full h-full object-cover"
+        />
+      )}
+    </div>
+  );
+}
+
 export default function LibraryClipsPage() {
   const { enableLibraryReview } = useConfig();
 
   const [events, setEvents] = useState<LibraryEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // Preferences
+  const [showPreferences, setShowPreferences] = useState(false);
+  const [prefs, setPrefs] = useState({
+    enableHoverScrobbling: true,
+    showMap: true,
+    showTelemetry: true,
+    showDateTime: true,
+    speedUnit: 'kmh'
+  });
+
+  useEffect(() => {
+    try {
+      const libPrefs = JSON.parse(localStorage.getItem('exportdash-library-prefs') || '{}');
+      const overlayPrefs = JSON.parse(localStorage.getItem('exportdash-overlay-config') || '{}');
+      
+      setPrefs({
+        enableHoverScrobbling: libPrefs.enableHoverScrobbling ?? false,
+        showMap: overlayPrefs.showMap ?? true,
+        showTelemetry: overlayPrefs.showTelemetry ?? true,
+        showDateTime: overlayPrefs.showDateTime ?? true,
+        speedUnit: overlayPrefs.speedUnit ?? 'mph',
+      });
+    } catch {}
+  }, []);
+
+  const updatePref = (key: string, value: any) => {
+    setPrefs(p => ({ ...p, [key]: value }));
+    
+    try {
+      if (key === 'enableHoverScrobbling') {
+        const libPrefs = JSON.parse(localStorage.getItem('exportdash-library-prefs') || '{}');
+        libPrefs[key] = value;
+        localStorage.setItem('exportdash-library-prefs', JSON.stringify(libPrefs));
+      } else {
+        const overlayPrefs = JSON.parse(localStorage.getItem('exportdash-overlay-config') || '{}');
+        overlayPrefs[key] = value;
+        localStorage.setItem('exportdash-overlay-config', JSON.stringify(overlayPrefs));
+      }
+    } catch {}
+  };
 
   // Filters
   const [filterType, setFilterType] = useState<string>('');
@@ -380,15 +496,51 @@ export default function LibraryClipsPage() {
         <div className="max-w-6xl mx-auto">
           {/* Mobile Header */}
           <div className="flex md:hidden justify-between items-center mb-6">
-            <h1 className="text-3xl font-bold">Library</h1>
+            <h1 className="text-3xl font-bold flex items-center gap-2">
+              Library
+              <button onClick={() => setShowPreferences(true)} className="p-2 bg-gray-800 hover:bg-gray-700 rounded-full transition-colors">
+                <svg className="w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+              </button>
+            </h1>
             <Link href="/" className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors text-sm">
               Back
             </Link>
           </div>
 
-          <div className="hidden md:block mb-6">
-            <h1 className="text-3xl font-bold">Library</h1>
+          <div className="hidden md:flex justify-between items-center mb-6">
+            <h1 className="text-3xl font-bold flex items-center gap-3">
+              Library
+              <button onClick={() => setShowPreferences(true)} className="p-2 bg-gray-800 hover:bg-gray-700 rounded-full transition-colors mt-1">
+                <svg className="w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+              </button>
+            </h1>
           </div>
+
+          {showPreferences && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setShowPreferences(false)}>
+              <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-full max-w-sm shadow-2xl" onClick={e => e.stopPropagation()}>
+                <div className="flex justify-between items-center mb-6">
+                  <h2 className="text-xl font-bold text-white">Preferences</h2>
+                  <button onClick={() => setShowPreferences(false)} className="text-gray-400 hover:text-white">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                  </button>
+                </div>
+                
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="font-medium text-gray-200 text-sm">Hover Scrobbling</h3>
+                      <p className="text-xs text-gray-500 mt-0.5">Scrub clips by moving mouse over thumbnails</p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input type="checkbox" className="sr-only peer" checked={prefs.enableHoverScrobbling} onChange={(e) => updatePref('enableHoverScrobbling', e.target.checked)} />
+                      <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Search Bar with Suggestions */}
           <div className="relative mb-4">
@@ -490,13 +642,7 @@ export default function LibraryClipsPage() {
                       return (
                         <Link key={event.id} href={`/?folder=${encodeURIComponent(event.folderPath)}`} className="bg-gray-900 rounded-xl overflow-hidden border border-gray-800 hover:border-blue-500 transition-colors group block relative">
                           <div className="aspect-video bg-gray-800 relative overflow-hidden">
-                            {event.thumbUrl ? (
-                              <img src={event.thumbUrl} alt={event.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center text-gray-600">
-                                No Preview
-                              </div>
-                            )}
+                            <HoverScrubber event={event} isEnabled={prefs.enableHoverScrobbling} />
                             
                             {/* Tags overlay */}
                             <div className="absolute top-2 left-2 flex flex-col gap-1">
