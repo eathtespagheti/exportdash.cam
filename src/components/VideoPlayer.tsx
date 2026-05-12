@@ -77,7 +77,7 @@ const FORMAT_ICONS: Record<string, ReactNode> = {
   'youtube-shorts': <IconBrandYoutube size={14} />,
 };
 
-type LayoutType = 'single' | 'pip' | 'triple' | 'all';
+type LayoutType = 'single' | 'pip' | 'triple' | 'quad' | 'all';
 
 interface LayoutConfig {
   id: LayoutType;
@@ -104,6 +104,12 @@ const LAYOUTS: LayoutConfig[] = [
     label: 'Triple',
     icon: <IconColumns3 size={14} />,
     description: 'Front + sides',
+  },
+  {
+    id: 'quad',
+    label: 'Quad',
+    icon: <IconLayoutGrid size={14} />,
+    description: 'Tesla original',
   },
   {
     id: 'all',
@@ -944,6 +950,42 @@ export function VideoPlayer({
                 </div>
               );
             })}
+          </div>
+          {renderPlayOverlay()}
+        </div>
+      );
+    }
+
+    // Quad cameras - 2 rows of 2 (Tesla style)
+    if (layout === 'quad') {
+      const rows = [
+        layoutConfig.quad.topRow,
+        layoutConfig.quad.bottomRow,
+      ];
+
+      return (
+        <div className="relative w-full bg-black flex items-center justify-center overflow-hidden aspect-video max-h-full">
+          <div className="absolute inset-0 flex flex-col gap-1 p-1">
+            {rows.map((row, rowIdx) => (
+              <div key={rowIdx} className="flex-1 flex gap-1 min-h-0">
+                {row.map((angle, colIdx) => {
+                  const isMain = angle === selectedAngle;
+                  const isAvailable = availableAngles.includes(angle);
+
+                  return (
+                    <div 
+                      key={`${rowIdx}-${colIdx}-${angle}`} 
+                      className={`flex-1 relative bg-gray-900 rounded overflow-hidden min-w-0 ${
+                        isMain ? 'ring-2 ring-inset ring-blue-500' : ''
+                      } ${isAvailable ? 'cursor-pointer' : 'opacity-40'}`}
+                      onClick={() => isAvailable && handleAngleChange(angle)}
+                    >
+                      {renderVideo(angle, isMain, 'w-full h-full')}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
           </div>
           {renderPlayOverlay()}
         </div>

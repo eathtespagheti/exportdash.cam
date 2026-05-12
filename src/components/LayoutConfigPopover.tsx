@@ -4,7 +4,7 @@ import { useEffect, useCallback } from 'react';
 import { LayoutCameraConfig, DEFAULT_LAYOUT_CONFIG, ANGLE_LABELS, PortraitLayoutType, PortraitLayoutMeta, PORTRAIT_LAYOUTS } from '@/types/video';
 import { IconRefresh, IconX, IconMapPin } from '@tabler/icons-react';
 
-type LayoutType = 'pip' | 'triple' | 'all';
+type LayoutType = 'pip' | 'triple' | 'quad' | 'all';
 
 interface LayoutConfigPopoverProps {
   layout: LayoutType;
@@ -202,6 +202,41 @@ export function LayoutConfigPopover({
     );
   };
 
+  // Quad config — screen simulation
+  const renderQuadConfig = () => {
+    const { topRow, bottomRow } = config.quad;
+
+    const updateTop = (index: number, angle: string) => {
+      const newRow = [...topRow] as [string, string];
+      newRow[index] = angle;
+      onChange({ ...config, quad: { topRow: newRow, bottomRow: config.quad.bottomRow } });
+    };
+
+    const updateBottom = (index: number, angle: string) => {
+      const newRow = [...bottomRow] as [string, string];
+      newRow[index] = angle;
+      onChange({ ...config, quad: { topRow: config.quad.topRow, bottomRow: newRow } });
+    };
+
+    return (
+      <div className="space-y-2">
+        <div className="text-[10px] text-gray-400 text-center">Two rows of two cameras (Tesla style)</div>
+        <div className="relative bg-gray-900 rounded-lg border border-gray-600 aspect-video mx-auto max-w-[320px]">
+          <div className="absolute inset-0 flex flex-col justify-center gap-2 p-2">
+            <div className="flex justify-center gap-4">
+              <CameraSelect value={topRow[0]} onChange={(a) => updateTop(0, a)} label="Top L" />
+              <CameraSelect value={topRow[1]} onChange={(a) => updateTop(1, a)} label="Top R" />
+            </div>
+            <div className="flex justify-center gap-4">
+              <CameraSelect value={bottomRow[0]} onChange={(a) => updateBottom(0, a)} label="Bot L" />
+              <CameraSelect value={bottomRow[1]} onChange={(a) => updateBottom(1, a)} label="Bot R" />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   // All 6 config — screen simulation
   const renderAllConfig = () => {
     const { topRow, bottomRow } = config.all;
@@ -242,6 +277,7 @@ export function LayoutConfigPopover({
   const titles: Record<LayoutType, string> = {
     pip: 'PiP Layout',
     triple: 'Triple Layout',
+    quad: '4-Camera Layout',
     all: 'All 6 Layout',
   };
 
@@ -311,6 +347,7 @@ export function LayoutConfigPopover({
           <>
             {layout === 'pip' && renderPipConfig()}
             {layout === 'triple' && renderTripleConfig()}
+            {layout === 'quad' && renderQuadConfig()}
             {layout === 'all' && renderAllConfig()}
           </>
         )}

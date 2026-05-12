@@ -117,6 +117,7 @@ export const ANGLE_ORDER = ['front', 'left_repeater', 'right_repeater', 'back', 
 export interface LayoutCameraConfig {
   pip: { corners: [string, string, string, string, string] }; // bottom-left, bottom-center, bottom-right, top-left, top-right
   triple: { cameras: [string, string, string] };               // left, center, right
+  quad: { topRow: [string, string]; bottomRow: [string, string] }; // top-left, top-right, bottom-left, bottom-right
   all: { topRow: [string, string, string]; bottomRow: [string, string, string] };
 }
 
@@ -126,6 +127,10 @@ export const PIP_SPECIAL_OPTIONS = ['none', 'map'] as const;
 export const DEFAULT_LAYOUT_CONFIG: LayoutCameraConfig = {
   pip: { corners: ['left_repeater', 'none', 'right_repeater', 'back', 'map'] },
   triple: { cameras: ['left_pillar', 'front', 'right_pillar'] },
+  quad: {
+    topRow: ['front', 'back'],
+    bottomRow: ['left_repeater', 'right_repeater'],
+  },
   all: {
     topRow: ['left_repeater', 'left_pillar', 'front'],
     bottomRow: ['right_repeater', 'right_pillar', 'back'],
@@ -143,6 +148,10 @@ export function loadLayoutConfig(): LayoutCameraConfig {
     return {
       pip: { corners: parsed?.pip?.corners?.length === 5 ? parsed.pip.corners : [...DEFAULT_LAYOUT_CONFIG.pip.corners] },
       triple: { cameras: parsed?.triple?.cameras?.length === 3 ? parsed.triple.cameras : [...DEFAULT_LAYOUT_CONFIG.triple.cameras] },
+      quad: {
+        topRow: parsed?.quad?.topRow?.length === 2 ? parsed.quad.topRow : [...DEFAULT_LAYOUT_CONFIG.quad.topRow],
+        bottomRow: parsed?.quad?.bottomRow?.length === 2 ? parsed.quad.bottomRow : [...DEFAULT_LAYOUT_CONFIG.quad.bottomRow],
+      },
       all: {
         topRow: parsed?.all?.topRow?.length === 3 ? parsed.all.topRow : [...DEFAULT_LAYOUT_CONFIG.all.topRow],
         bottomRow: parsed?.all?.bottomRow?.length === 3 ? parsed.all.bottomRow : [...DEFAULT_LAYOUT_CONFIG.all.bottomRow],
