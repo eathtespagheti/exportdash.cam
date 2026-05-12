@@ -7,8 +7,14 @@ interface LibraryEvent {
   folderPath: string;
   title: string;
   date: string;
+  timestamp: string | null;
   thumbUrl: string | null;
   videoCount: number;
+  type: string;
+  reason: string;
+  reasonLabel: string;
+  city: string;
+  camera: string;
 }
 
 function findEvents(basePath: string, currentPath: string = '', depth: number = 0): LibraryEvent[] {
@@ -28,19 +34,38 @@ function findEvents(basePath: string, currentPath: string = '', depth: number = 
     if (hasEventJson && videos.length > 0) {
       let title = currentPath.split(path.sep).pop() || 'Unknown Event';
       let dateStr = '';
+      let timestampStr = null;
+      let reason = '';
+      let reasonLabel = '';
+      let city = '';
+      let camera = '';
+      let type = 'Unknown';
+      
+      // Determine type from folder path
+      const lowerPath = currentPath.toLowerCase();
+      if (lowerPath.includes('sentry')) {
+        type = 'Sentry';
+      } else if (lowerPath.includes('saved') || lowerPath.includes('dashcam')) {
+        type = 'Dashcam';
+      }
       
       try {
         const eventJsonContent = fs.readFileSync(path.join(absolutePath, 'event.json'), 'utf8');
         const eventData = JSON.parse(eventJsonContent);
         
-        let reasonLabel = eventData.reason || '';
+        reason = eventData.reason || '';
+        reasonLabel = reason || '';
         if (reasonLabel) {
           reasonLabel = reasonLabel.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
         }
         
-        title = [eventData.city, reasonLabel].filter(Boolean).join(' - ') || title;
+        city = eventData.city || '';
+        camera = eventData.camera || '';
+        
+        title = [city, reasonLabel].filter(Boolean).join(' - ') || title;
         
         if (eventData.timestamp) {
+          timestampStr = eventData.timestamp;
           const dateObj = new Date(eventData.timestamp);
           if (!isNaN(dateObj.getTime())) {
             dateStr = dateObj.toLocaleString();
@@ -55,8 +80,14 @@ function findEvents(basePath: string, currentPath: string = '', depth: number = 
         folderPath: currentPath,
         title,
         date: dateStr,
+        timestamp: timestampStr,
         thumbUrl: hasThumb ? `/api/video?path=${encodeURIComponent(path.join(absolutePath, 'thumb.png'))}` : null,
         videoCount: videos.length,
+        type,
+        reason,
+        reasonLabel,
+        city,
+        camera
       });
     }
 
@@ -99,8 +130,8 @@ export async function GET(request: Request) {
     
     // Sort events by date descending
     events.sort((a, b) => {
-      const dateA = new Date(a.date).getTime();
-      const dateB = new Date(b.date).getTime();
+      const dateA = a.timestamp ? new Date(a.timestamp).getTime() : new Date(a.date).getTime();
+      const dateB = b.timestamp ? new Date(b.timestamp).getTime() : new Date(b.date).getTime();
       if (!isNaN(dateA) && !isNaN(dateB)) return dateB - dateA;
       return b.folderPath.localeCompare(a.folderPath);
     });
@@ -111,4 +142,3 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Failed to read events' }, { status: 500 });
   }
 }
-
