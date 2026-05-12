@@ -55,6 +55,10 @@ export default function LibraryClipsPage() {
   const [filterDateFrom, setFilterDateFrom] = useState<string>('');
   const [filterDateTo, setFilterDateTo] = useState<string>('');
 
+  // Search
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showSuggestions, setShowSuggestions] = useState(false);
+
   useEffect(() => {
     if (!enableLibraryReview) {
       setIsLoading(false);
@@ -77,21 +81,81 @@ export default function LibraryClipsPage() {
     const reasons = new Set<string>();
     const cities = new Set<string>();
     const cameras = new Set<string>();
+    const dates = new Set<string>();
 
     events.forEach(event => {
       if (event.type) types.add(event.type);
       if (event.reasonLabel) reasons.add(event.reasonLabel);
       if (event.city) cities.add(event.city);
       if (event.camera) cameras.add(event.camera);
+      if (event.timestamp) {
+        const d = new Date(event.timestamp);
+        if (!isNaN(d.getTime())) {
+          dates.add(d.toLocaleDateString(undefined, {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+          }));
+        }
+      }
     });
 
     return {
       types: Array.from(types).sort(),
       reasons: Array.from(reasons).sort(),
       cities: Array.from(cities).sort(),
-      cameras: Array.from(cameras).sort()
+      cameras: Array.from(cameras).sort(),
+      dates: Array.from(dates)
     };
   }, [events]);
+
+  const suggestions = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+    const q = searchQuery.toLowerCase();
+    const results: { type: string, value: string, label: string }[] = [];
+
+    filterOptions.cities.forEach(c => {
+      if (c && c.toLowerCase().includes(q)) results.push({ type: 'City', value: c, label: c });
+    });
+    filterOptions.reasons.forEach(r => {
+      if (r && r.toLowerCase().includes(q)) results.push({ type: 'Reason', value: r, label: r });
+    });
+    filterOptions.types.forEach(t => {
+      if (t && t.toLowerCase().includes(q)) results.push({ type: 'Type', value: t, label: t });
+    });
+    filterOptions.cameras.forEach(c => {
+      if (!c) return;
+      const label = getCameraLabel(c);
+      if (label.toLowerCase().includes(q)) results.push({ type: 'Camera', value: c, label: label });
+    });
+    
+    ['Morning', 'Afternoon', 'Evening', 'Night'].forEach(t => {
+      if (t.toLowerCase().includes(q)) results.push({ type: 'Time', value: t, label: t });
+    });
+
+    filterOptions.dates.forEach(d => {
+      if (d && d.toLowerCase().includes(q)) results.push({ type: 'Date', value: d, label: d });
+    });
+
+    return results.slice(0, 8); // Max 8 suggestions
+  }, [searchQuery, filterOptions]);
+
+  const applySuggestion = (sugg: { type: string, value: string, label: string }) => {
+    if (sugg.type === 'City') setFilterCity(sugg.value);
+    else if (sugg.type === 'Reason') setFilterReason(sugg.value);
+    else if (sugg.type === 'Type') setFilterType(sugg.value);
+    else if (sugg.type === 'Camera') setFilterCamera(sugg.value);
+    else if (sugg.type === 'Time') setFilterTimeRange(sugg.value);
+    else if (sugg.type === 'Date') {
+      setSearchQuery(sugg.value);
+      setShowSuggestions(false);
+      return; // Act as text search for dates
+    }
+    
+    setSearchQuery('');
+    setShowSuggestions(false);
+  };
 
   // Filtered and grouped events
   const groupedEvents = useMemo(() => {
@@ -112,6 +176,33 @@ export default function LibraryClipsPage() {
         const eventDateStr = eventDate.toISOString().split('T')[0];
         if (filterDateFrom && eventDateStr < filterDateFrom) return false;
         if (filterDateTo && eventDateStr > filterDateTo) return false;
+      }
+
+      if (searchQuery.trim()) {
+        const query = searchQuery.toLowerCase();
+        const timeOfDay = eventDate ? getTimeOfDay(eventDate).toLowerCase() : '';
+        const dateStr = eventDate ? eventDate.toLocaleDateString().toLowerCase() : '';
+        const dateKey = eventDate ? eventDate.toLocaleDateString(undefined, {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+          }).toLowerCase() : '';
+
+        const searchString = `
+          ${event.title.toLowerCase()}
+          ${event.city.toLowerCase()}
+          ${event.reasonLabel.toLowerCase()}
+          ${event.type.toLowerCase()}
+          ${getCameraLabel(event.camera).toLowerCase()}
+          ${timeOfDay}
+          ${dateStr}
+          ${dateKey}
+        `;
+
+        if (!searchString.includes(query)) {
+          return false;
+        }
       }
 
       return true;
@@ -140,8 +231,7 @@ export default function LibraryClipsPage() {
       groups[dateKey].push(event);
     });
 
-    // Sort groups (we assume the events array is already sorted descending, so we just maintain that order or sort the keys)
-    // Keys format makes them hard to sort alphabetically, so let's get the timestamp of the first event in each group
+    // Sort groups
     const sortedGroups = Object.entries(groups).sort((a, b) => {
       if (a[0] === 'Unknown Date') return 1;
       if (b[0] === 'Unknown Date') return -1;
@@ -152,7 +242,7 @@ export default function LibraryClipsPage() {
     });
 
     return sortedGroups;
-  }, [events, filterType, filterReason, filterCity, filterCamera, filterTimeRange, filterDateFrom, filterDateTo]);
+  }, [events, filterType, filterReason, filterCity, filterCamera, filterTimeRange, filterDateFrom, filterDateTo, searchQuery]);
 
   if (!enableLibraryReview) {
     return (
@@ -183,6 +273,7 @@ export default function LibraryClipsPage() {
               setFilterTimeRange('');
               setFilterDateFrom('');
               setFilterDateTo('');
+              setSearchQuery('');
             }}
             className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
           >
@@ -288,46 +379,93 @@ export default function LibraryClipsPage() {
       <div className="flex-1 p-8 overflow-y-auto h-screen">
         <div className="max-w-6xl mx-auto">
           {/* Mobile Header */}
-          <div className="flex md:hidden justify-between items-center mb-8">
+          <div className="flex md:hidden justify-between items-center mb-6">
             <h1 className="text-3xl font-bold">Library</h1>
             <Link href="/" className="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors text-sm">
               Back
             </Link>
           </div>
 
-          <div className="hidden md:block mb-8">
+          <div className="hidden md:block mb-6">
             <h1 className="text-3xl font-bold">Library</h1>
           </div>
 
-          {/* Mobile Filters (simplified for space) */}
-          <div className="md:hidden mb-8 flex flex-wrap gap-2">
-             <select 
-              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm"
-              value={filterType}
-              onChange={(e) => setFilterType(e.target.value)}
-            >
-              <option value="">All Types</option>
-              {filterOptions.types.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
-            <select 
-              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm"
-              value={filterReason}
-              onChange={(e) => setFilterReason(e.target.value)}
-            >
-              <option value="">All Reasons</option>
-              {filterOptions.reasons.map(r => <option key={r} value={r}>{r}</option>)}
-            </select>
-            <select 
-              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm"
-              value={filterTimeRange}
-              onChange={(e) => setFilterTimeRange(e.target.value)}
-            >
-              <option value="">Any Time</option>
-              <option value="Morning">Morning</option>
-              <option value="Afternoon">Afternoon</option>
-              <option value="Evening">Evening</option>
-              <option value="Night">Night</option>
-            </select>
+          {/* Search Bar with Suggestions */}
+          <div className="relative mb-4">
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <svg className="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+              </div>
+              <input
+                type="text"
+                className="block w-full pl-10 pr-3 py-3 border border-gray-700 rounded-xl leading-5 bg-gray-900 text-gray-300 placeholder-gray-500 focus:outline-none focus:bg-gray-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 sm:text-sm transition-colors"
+                placeholder="Search by city, date, reason, type..."
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setShowSuggestions(true);
+                }}
+                onFocus={() => setShowSuggestions(true)}
+                onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+              />
+            </div>
+            
+            {showSuggestions && suggestions.length > 0 && (
+              <div className="absolute z-50 mt-2 w-full bg-gray-800 border border-gray-700 rounded-xl shadow-lg overflow-hidden">
+                <ul className="max-h-60 overflow-auto py-1 text-sm text-gray-300">
+                  {suggestions.map((sugg, idx) => (
+                    <li 
+                      key={idx} 
+                      className="px-4 py-2 hover:bg-gray-700 cursor-pointer flex items-center justify-between"
+                      onClick={() => applySuggestion(sugg)}
+                    >
+                      <span className="font-medium text-white">{sugg.label}</span>
+                      <span className="text-xs font-semibold text-blue-400 bg-blue-900/30 px-2 py-0.5 rounded tracking-wide uppercase">{sugg.type}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+
+          {/* Active Filter Badges */}
+          <div className="flex flex-wrap gap-2 mb-6">
+            {filterType && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                Type: {filterType}
+                <button onClick={() => setFilterType('')} className="hover:text-white">&times;</button>
+              </span>
+            )}
+            {filterReason && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                Reason: {filterReason}
+                <button onClick={() => setFilterReason('')} className="hover:text-white">&times;</button>
+              </span>
+            )}
+            {filterCity && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-green-500/20 text-green-300 border border-green-500/30">
+                City: {filterCity}
+                <button onClick={() => setFilterCity('')} className="hover:text-white">&times;</button>
+              </span>
+            )}
+            {filterCamera && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-yellow-500/20 text-yellow-300 border border-yellow-500/30">
+                Camera: {getCameraLabel(filterCamera)}
+                <button onClick={() => setFilterCamera('')} className="hover:text-white">&times;</button>
+              </span>
+            )}
+            {filterTimeRange && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-orange-500/20 text-orange-300 border border-orange-500/30">
+                Time: {filterTimeRange}
+                <button onClick={() => setFilterTimeRange('')} className="hover:text-white">&times;</button>
+              </span>
+            )}
+            {(filterDateFrom || filterDateTo) && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-pink-500/20 text-pink-300 border border-pink-500/30">
+                Date: {filterDateFrom || 'Any'} to {filterDateTo || 'Any'}
+                <button onClick={() => { setFilterDateFrom(''); setFilterDateTo(''); }} className="hover:text-white">&times;</button>
+              </span>
+            )}
           </div>
 
           {isLoading ? (
