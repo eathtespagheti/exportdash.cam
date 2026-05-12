@@ -125,6 +125,7 @@ export default function LibraryClipsPage() {
   const [showPreferences, setShowPreferences] = useState(false);
   const [prefs, setPrefs] = useState({
     enableHoverScrobbling: true,
+    cacheLimitGB: 10,
     showMap: true,
     showTelemetry: true,
     showDateTime: true,
@@ -138,6 +139,7 @@ export default function LibraryClipsPage() {
       
       setPrefs({
         enableHoverScrobbling: libPrefs.enableHoverScrobbling ?? false,
+        cacheLimitGB: libPrefs.cacheLimitGB ?? 10,
         showMap: overlayPrefs.showMap ?? true,
         showTelemetry: overlayPrefs.showTelemetry ?? true,
         showDateTime: overlayPrefs.showDateTime ?? true,
@@ -150,7 +152,7 @@ export default function LibraryClipsPage() {
     setPrefs(p => ({ ...p, [key]: value }));
     
     try {
-      if (key === 'enableHoverScrobbling') {
+      if (key === 'enableHoverScrobbling' || key === 'cacheLimitGB') {
         const libPrefs = JSON.parse(localStorage.getItem('exportdash-library-prefs') || '{}');
         libPrefs[key] = value;
         localStorage.setItem('exportdash-library-prefs', JSON.stringify(libPrefs));
@@ -536,6 +538,30 @@ export default function LibraryClipsPage() {
                       <input type="checkbox" className="sr-only peer" checked={prefs.enableHoverScrobbling} onChange={(e) => updatePref('enableHoverScrobbling', e.target.checked)} />
                       <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
                     </label>
+                  </div>
+                  
+                  <div className="w-full h-px bg-gray-800"></div>
+
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="font-medium text-gray-200 text-sm">Browser Cache Limit</h3>
+                        <p className="text-xs text-gray-500 mt-0.5">Max storage for fast clip replay ({prefs.cacheLimitGB} GB)</p>
+                      </div>
+                    </div>
+                    <input 
+                      type="range" 
+                      min="0" 
+                      max="50" 
+                      step="1"
+                      value={prefs.cacheLimitGB} 
+                      onChange={(e) => updatePref('cacheLimitGB', parseInt(e.target.value, 10))}
+                      className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                    />
+                    <div className="flex justify-between text-[10px] text-gray-500">
+                      <span>0 GB (Off)</span>
+                      <span>50 GB</span>
+                    </div>
                   </div>
                 </div>
               </div>

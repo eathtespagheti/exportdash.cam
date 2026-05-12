@@ -5,6 +5,7 @@ import { useSeiData } from '@/hooks/useSeiData';
 import { TelemetryCard } from './TelemetryCard';
 import { VideoSequence, ANGLE_LABELS, ANGLE_ORDER, VideoMoment, TrimPoints, CameraSegment, LayoutCameraConfig, DEFAULT_LAYOUT_CONFIG, loadLayoutConfig, saveLayoutConfig, FormatType, FORMAT_PRESETS, getFormatPreset, PortraitLayoutType, PortraitCameraConfig, PORTRAIT_LAYOUTS, getPortraitLayout, loadPortraitLayout, savePortraitLayout, loadPortraitCameraConfig, savePortraitCameraConfig, DEFAULT_PORTRAIT_CAMERA_CONFIG, AlignPosition, PortraitAlignConfig, DEFAULT_PORTRAIT_ALIGN_CONFIG, loadPortraitAlignConfig, savePortraitAlignConfig } from '@/types/video';
 import { findMomentForTime, toAbsoluteTime } from '@/lib/sequence-detector';
+import { getCachedVideoUrl } from '@/lib/video-cache';
 import {
   IconArrowUp,
   IconArrowDown,
@@ -311,22 +312,45 @@ export function VideoPlayer({
 
   // Create object URLs for current moment's videos
   useEffect(() => {
-    if (!currentMoment) {
-      setVideoUrls({});
-      return;
-    }
+    let isMounted = true;
+    let urlsToRevoke: string[] = [];
 
-    const urls: Record<string, string> = {};
-    for (const video of currentMoment.videos) {
-      urls[video.angle] = video.url || URL.createObjectURL(video.file!);
-    }
-    setVideoUrls(urls);
+    const loadUrls = async () => {
+      if (!currentMoment) {
+        setVideoUrls({});
+        return;
+      }
+
+      const urls: Record<string, string> = {};
+      const libPrefs = JSON.parse(localStorage.getItem('exportdash-library-prefs') || '{}');
+      const limitBytes = (libPrefs.cacheLimitGB ?? 10) * 1024 * 1024 * 1024;
+
+      for (const video of currentMoment.videos) {
+        if (video.url) {
+          // Library video - try cache
+          const cachedUrl = await getCachedVideoUrl(video.url, limitBytes);
+          urls[video.angle] = cachedUrl;
+          if (cachedUrl.startsWith('blob:')) {
+            urlsToRevoke.push(cachedUrl);
+          }
+        } else {
+          // Local file
+          const blobUrl = URL.createObjectURL(video.file!);
+          urls[video.angle] = blobUrl;
+          urlsToRevoke.push(blobUrl);
+        }
+      }
+
+      if (isMounted) {
+        setVideoUrls(urls);
+      }
+    };
+
+    loadUrls();
 
     return () => {
-      Object.entries(urls).forEach(([angle, url]) => {
-        const v = currentMoment.videos.find(v => v.angle === angle);
-        if (v?.file) URL.revokeObjectURL(url);
-      });
+      isMounted = false;
+      urlsToRevoke.forEach(url => URL.revokeObjectURL(url));
     };
   }, [currentMoment?.id]);
 
