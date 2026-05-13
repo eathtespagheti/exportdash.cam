@@ -344,7 +344,7 @@ export function VideoPlayer({
   // re-runs when the moment actually changes.
   useEffect(() => {
     let isMounted = true;
-    let urlsToRevoke: string[] = [];
+    const urlsToRevoke: string[] = [];
 
     const loadUrls = async () => {
       if (!currentMoment) {
@@ -724,7 +724,7 @@ export function VideoPlayer({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [togglePlay, absoluteTime, sequence, seekToAbsoluteTime, handleLayoutChange, toggleFullscreen, skipToPreviousClip, skipToNextClip, toggleTrimMode]);
 
-  if (!sequence || !currentMoment || Object.keys(videoUrls).length === 0) {
+  if (!sequence || !currentMoment) {
     return (
       <div className="bg-gray-900 rounded-xl aspect-video flex items-center justify-center">
         <div className="text-center text-gray-500">

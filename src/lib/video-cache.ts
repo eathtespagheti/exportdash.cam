@@ -14,20 +14,19 @@ export async function getCachedVideoUrl(url: string, limitBytes: number): Promis
       return URL.createObjectURL(blob);
     }
 
-    // 2. Fetch and cache
-    const response = await fetch(url);
-    if (!response.ok) return url;
+    // 2. If not in cache, trigger background fetch and cache, but return original URL immediately for streaming
+    fetch(url).then(async (response) => {
+      if (response.ok) {
+        await cache.put(url, response.clone());
+        enforceCacheLimit(limitBytes).catch(console.error);
+      }
+    }).catch(err => {
+      console.warn('Background cache fetch failed:', err);
+    });
     
-    // Put a clone in cache
-    await cache.put(url, response.clone());
-    
-    // Manage cache size asynchronously
-    enforceCacheLimit(limitBytes).catch(console.error);
-    
-    const blob = await response.blob();
-    return URL.createObjectURL(blob);
+    return url;
   } catch (err) {
-    console.warn('Failed to cache video:', err);
+    console.warn('Failed to interact with cache:', err);
     return url; // fallback to original URL
   }
 }
