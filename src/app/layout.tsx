@@ -30,6 +30,7 @@ export default function RootLayout({
   const runtimeConfig = {
     enableUploadBox: process.env.NEXT_PUBLIC_ENABLE_UPLOAD_BOX !== 'false',
     enableLibraryReview: process.env.NEXT_PUBLIC_ENABLE_LIBRARY_REVIEW === 'true',
+    enableServerLibraryConfig: process.env.NEXT_PUBLIC_ENABLE_SERVER_LIBRARY_CONFIG === 'true',
   };
 
   return (

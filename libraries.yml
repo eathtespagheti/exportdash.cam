@@ -1,0 +1,31 @@
+# libraries.yml
+# Configuration for multi-source libraries in ExportDash
+# 
+# This file is loaded at startup to define the default libraries available to the application.
+# Users can also add additional libraries (both Server and Local/Client) directly from the UI,
+# which will be stored in the browser's IndexedDB.
+
+libraries:
+  # Example 1: A standard Server Path configuration
+  # This points to a directory on the machine where the ExportDash server is running.
+  - id: server-clips
+    name: Server Sentry Clips
+    type: server
+    path: /app/clips
+
+  # Example 2: Another Server Path configuration
+  # - id: example-server-saved
+  #   name: Server Saved Clips
+  #   type: server
+  #   path: /path/to/tesla/TeslaCam/SavedClips
+
+  # Example 3: A Client Path configuration
+  # Note: Client-side libraries are typically added through the web UI because they require
+  # the browser to grant File System Access API permissions (which produces a local handle).
+  # If defined here, the client will attempt to look up a directory handle in IndexedDB
+  # matching this exact ID ('example-client-usb').
+  # - id: example-client-usb
+  #   name: Local USB Drive
+  #   type: client
+    # Note: 'path' is ignored for 'client' type libraries.
+ 

@@ -72,6 +72,63 @@ function HomeContent() {
 
   useEffect(() => {
     const folder = searchParams.get('folder');
+    const libraryPath = searchParams.get('libraryPath');
+    const clientLibraryId = searchParams.get('clientLibraryId');
+
+    if (clientLibraryId && folder) {
+      setIsProcessing(true);
+      setProcessingProgress({
+        stage: 'scanning',
+        current: 0,
+        total: 0,
+        message: 'Loading from local directory...',
+      });
+
+      import('idb-keyval').then(async ({ get }) => {
+        try {
+          const rootHandle = await get(clientLibraryId) as any;
+          if (!rootHandle) throw new Error('Local directory access expired. Please re-add it in the Library.');
+          
+          let currentHandle = rootHandle;
+          const parts = folder.split('/').filter(Boolean);
+          for (const part of parts) {
+            currentHandle = await currentHandle.getDirectoryHandle(part);
+          }
+
+          const files = [];
+          for await (const entry of currentHandle.values()) {
+            if (entry.kind === 'file' && (entry.name.toLowerCase().endsWith('.mp4') || entry.name.toLowerCase() === 'event.json')) {
+              files.push(entry);
+            }
+          }
+
+          if (files.length === 0) throw new Error('No supported files found');
+
+          const virtualFiles = await Promise.all(files.map(async (fileHandle: any) => {
+            const file = await fileHandle.getFile();
+            return {
+              name: file.name,
+              size: file.size,
+              url: URL.createObjectURL(file),
+              text: file.name.toLowerCase() === 'event.json' ? async () => file.text() : undefined
+            };
+          }));
+
+          handleFilesAdded(virtualFiles);
+        } catch (err: any) {
+          console.error(err);
+          setProcessingProgress({
+            stage: 'error',
+            current: 0,
+            total: 0,
+            message: err.message || 'Failed to load local folder',
+          });
+          setIsProcessing(false);
+        }
+      });
+      return;
+    }
+
     if (folder) {
       // Auto-load from server
       setIsProcessing(true);
@@ -82,7 +139,12 @@ function HomeContent() {
         message: 'Loading from library...',
       });
 
-      fetch(`/api/clips?folder=${encodeURIComponent(folder)}`)
+      let url = `/api/clips?folder=${encodeURIComponent(folder)}`;
+      if (libraryPath) {
+        url += `&libraryPath=${encodeURIComponent(libraryPath)}`;
+      }
+
+      fetch(url)
         .then(res => res.json())
         .then(data => {
           if (data.error) throw new Error(data.error);

@@ -1,24 +1,16 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useConfig } from '@/components/ConfigProvider';
+import { get, set } from 'idb-keyval';
+import { scanClientDirectory } from '@/lib/client-scanner';
+import { LibraryConfig, LibraryEvent, LibrarySourceType } from '@/types/library';
 
-interface LibraryEvent {
-  id: string;
-  folderPath: string;
-  title: string;
-  date: string;
-  timestamp: string | null;
-  thumbUrl: string | null;
-  videoUrl: string | null;
-  videoCount: number;
-  type: string;
-  reason: string;
-  reasonLabel: string;
-  city: string;
-  camera: string;
-}
+const COMMON_COLORS = [
+  '#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4',
+  '#3b82f6', '#6366f1', '#a855f7', '#ec4899', '#f43f5e'
+];
 
 const CAMERA_MAP: Record<string, string> = {
   '0': 'Front',
@@ -115,9 +107,10 @@ function HoverScrubber({ event, isEnabled }: { event: LibraryEvent, isEnabled: b
 }
 
 export default function LibraryClipsPage() {
-  const { enableLibraryReview } = useConfig();
+  const { enableLibraryReview, enableServerLibraryConfig } = useConfig();
 
   const [events, setEvents] = useState<LibraryEvent[]>([]);
+  const [libraries, setLibraries] = useState<LibraryConfig[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -166,6 +159,7 @@ export default function LibraryClipsPage() {
 
   // Filters
   const [filterType, setFilterType] = useState<string>('');
+  const [filterLibrary, setFilterLibrary] = useState<string>('');
   const [filterReason, setFilterReason] = useState<string>('');
   const [filterCity, setFilterCity] = useState<string>('');
   const [filterCamera, setFilterCamera] = useState<string>('');
@@ -177,25 +171,176 @@ export default function LibraryClipsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
 
-  useEffect(() => {
+  const loadData = useCallback(async () => {
     if (!enableLibraryReview) {
       setIsLoading(false);
       return;
     }
+    setIsLoading(true);
+    setError('');
+    
+    try {
+      const libsRes = await fetch('/api/libraries');
+      const libsData = await libsRes.json();
+      const serverLibs: LibraryConfig[] = libsData.libraries || [];
+      
+      let customLibs: (LibraryConfig & { isUserAdded?: boolean })[] = [];
+      try {
+        const stored = await get('exportdash-user-libraries');
+        if (Array.isArray(stored)) {
+          customLibs = stored.map(l => ({ ...l, isUserAdded: true }));
+        }
+      } catch(e) {}
+      
+      const allLibsRaw = [...serverLibs, ...customLibs];
+      
+      let libPrefsData: any = {};
+      try {
+        libPrefsData = JSON.parse(localStorage.getItem('exportdash-library-prefs') || '{}');
+      } catch(e) {}
+      const savedColors = libPrefsData.libraryColors || {};
+      
+      const usedColors = Object.values(savedColors).concat(allLibsRaw.map(l => l.color).filter(Boolean)) as string[];
+      
+      const allLibs = allLibsRaw.map(lib => {
+        let finalColor = savedColors[lib.id] || lib.color;
+        if (!finalColor) {
+           const available = COMMON_COLORS.filter(c => !usedColors.includes(c));
+           if (available.length > 0) {
+             const index = Array.from(lib.id).reduce((acc, char) => acc + char.charCodeAt(0), 0) % available.length;
+             finalColor = available[index];
+           } else {
+             const index = Array.from(lib.id).reduce((acc, char) => acc + char.charCodeAt(0), 0) % COMMON_COLORS.length;
+             finalColor = COMMON_COLORS[index];
+           }
+           usedColors.push(finalColor);
+        }
+        return { ...lib, computedColor: finalColor };
+      });
 
-    fetch('/api/events')
-      .then(res => res.json())
-      .then(data => {
-        if (data.error) throw new Error(data.error);
-        setEvents(data.events || []);
-      })
-      .catch(err => setError(err.message))
-      .finally(() => setIsLoading(false));
+      setLibraries(allLibs);
+      
+      let allEvents: LibraryEvent[] = [];
+      
+      await Promise.all(allLibs.map(async (lib) => {
+        try {
+          if (lib.type === 'server' && lib.path) {
+            const res = await fetch(`/api/events?path=${encodeURIComponent(lib.path)}`);
+            const data = await res.json();
+            if (data.events) {
+              const mappedEvents = data.events.map((e: any) => ({ ...e, libraryId: lib.id, libraryName: lib.name, libraryColor: lib.computedColor }));
+              allEvents = [...allEvents, ...mappedEvents];
+            }
+          } else if (lib.type === 'client') {
+            const handle = await get(lib.id) as FileSystemDirectoryHandle;
+            if (handle) {
+              if (await handle.queryPermission({mode: 'read'}) !== 'granted') {
+                await handle.requestPermission({mode: 'read'});
+              }
+              const clientEvents = await scanClientDirectory(handle);
+              const mappedEvents = clientEvents.map((e: any) => ({ ...e, libraryId: lib.id, libraryName: lib.name, libraryColor: lib.computedColor }));
+              allEvents = [...allEvents, ...mappedEvents];
+            }
+          }
+        } catch (e) {
+          console.error('Failed to load events for library', lib.name, e);
+        }
+      }));
+      
+      // Deduplicate events by id
+      const uniqueEvents = Array.from(new Map(allEvents.map(e => [e.id, e])).values());
+      setEvents(uniqueEvents);
+    } catch (err: any) {
+      setError(err.message || 'Failed to load library data');
+    } finally {
+      setIsLoading(false);
+    }
   }, [enableLibraryReview]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const handleAddServerLibrary = async () => {
+    const path = prompt('Enter the absolute path to the server directory:');
+    if (path) {
+      const defaultName = path.split('/').filter(Boolean).pop() || path;
+      const name = prompt('Enter a name for this library:', defaultName);
+      if (!name) return;
+
+      const newLib: LibraryConfig = {
+        id: 'server-' + Date.now(),
+        name,
+        type: 'server',
+        path: path
+      };
+      const stored = await get('exportdash-user-libraries') || [];
+      await set('exportdash-user-libraries', [...stored, newLib]);
+      loadData();
+    }
+  };
+
+  const handleAddLocalLibrary = async () => {
+    if (!('showDirectoryPicker' in window)) {
+      alert('Your browser does not support scanning local folders directly. Please use a Chromium-based browser like Chrome, Edge, or Brave, or configure a Server Path instead.');
+      return;
+    }
+    try {
+      // @ts-ignore - TS doesn't know about showDirectoryPicker everywhere yet
+      const handle = await window.showDirectoryPicker();
+      const name = prompt('Enter a name for this library:', handle.name);
+      if (!name) return;
+
+      const newLib: LibraryConfig = {
+        id: 'client-' + Date.now(),
+        name,
+        type: 'client'
+      };
+      await set(newLib.id, handle);
+      const stored = await get('exportdash-user-libraries') || [];
+      await set('exportdash-user-libraries', [...stored, newLib]);
+      loadData();
+    } catch (e) {
+      console.error('User cancelled or error picking directory', e);
+    }
+  };
+
+  const handleRemoveLibrary = async (id: string) => {
+    if (!enableServerLibraryConfig && id.startsWith('server-')) {
+      alert('Removing server libraries is disabled by configuration.');
+      return;
+    }
+    if (!confirm('Are you sure you want to remove this library from your configuration?')) return;
+    const stored = await get('exportdash-user-libraries') || [];
+    const updated = stored.filter((l: any) => l.id !== id);
+    await set('exportdash-user-libraries', updated);
+    loadData();
+  };
+
+  const handleRenameLibrary = async (id: string, currentName: string) => {
+    const newName = prompt('Enter a new name for this library:', currentName);
+    if (!newName || newName === currentName) return;
+
+    const stored = await get('exportdash-user-libraries') || [];
+    const updated = stored.map((l: any) => l.id === id ? { ...l, name: newName } : l);
+    await set('exportdash-user-libraries', updated);
+    loadData();
+  };
+
+  const handleChangeLibraryColor = (id: string, color: string) => {
+    try {
+      const libPrefs = JSON.parse(localStorage.getItem('exportdash-library-prefs') || '{}');
+      const updatedColors = { ...(libPrefs.libraryColors || {}), [id]: color };
+      libPrefs.libraryColors = updatedColors;
+      localStorage.setItem('exportdash-library-prefs', JSON.stringify(libPrefs));
+      loadData();
+    } catch {}
+  };
 
   // Derived filter options
   const filterOptions = useMemo(() => {
     const types = new Set<string>();
+    const librariesSet = new Set<string>();
     const reasons = new Set<string>();
     const cities = new Set<string>();
     const cameras = new Set<string>();
@@ -203,6 +348,7 @@ export default function LibraryClipsPage() {
 
     events.forEach(event => {
       if (event.type) types.add(event.type);
+      if (event.libraryName) librariesSet.add(event.libraryName);
       if (event.reasonLabel) reasons.add(event.reasonLabel);
       if (event.city) cities.add(event.city);
       if (event.camera) cameras.add(event.camera);
@@ -221,6 +367,7 @@ export default function LibraryClipsPage() {
 
     return {
       types: Array.from(types).sort(),
+      libraries: Array.from(librariesSet).sort(),
       reasons: Array.from(reasons).sort(),
       cities: Array.from(cities).sort(),
       cameras: Array.from(cameras).sort(),
@@ -241,6 +388,9 @@ export default function LibraryClipsPage() {
     });
     filterOptions.types.forEach(t => {
       if (t && t.toLowerCase().includes(q)) results.push({ type: 'Type', value: t, label: t });
+    });
+    filterOptions.libraries.forEach(l => {
+      if (l && l.toLowerCase().includes(q)) results.push({ type: 'Library', value: l, label: l });
     });
     filterOptions.cameras.forEach(c => {
       if (!c) return;
@@ -263,6 +413,7 @@ export default function LibraryClipsPage() {
     if (sugg.type === 'City') setFilterCity(sugg.value);
     else if (sugg.type === 'Reason') setFilterReason(sugg.value);
     else if (sugg.type === 'Type') setFilterType(sugg.value);
+    else if (sugg.type === 'Library') setFilterLibrary(sugg.value);
     else if (sugg.type === 'Camera') setFilterCamera(sugg.value);
     else if (sugg.type === 'Time') setFilterTimeRange(sugg.value);
     else if (sugg.type === 'Date') {
@@ -279,6 +430,7 @@ export default function LibraryClipsPage() {
   const groupedEvents = useMemo(() => {
     const filtered = events.filter(event => {
       if (filterType && event.type !== filterType) return false;
+      if (filterLibrary && event.libraryName !== filterLibrary) return false;
       if (filterReason && event.reasonLabel !== filterReason) return false;
       if (filterCity && event.city !== filterCity) return false;
       if (filterCamera && event.camera !== filterCamera) return false;
@@ -309,6 +461,7 @@ export default function LibraryClipsPage() {
 
         const searchString = `
           ${event.title.toLowerCase()}
+          ${event.libraryName ? event.libraryName.toLowerCase() : ''}
           ${event.city.toLowerCase()}
           ${event.reasonLabel.toLowerCase()}
           ${event.type.toLowerCase()}
@@ -400,6 +553,18 @@ export default function LibraryClipsPage() {
         </div>
 
         <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-400 mb-1">Library</label>
+            <select 
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+              value={filterLibrary}
+              onChange={(e) => setFilterLibrary(e.target.value)}
+            >
+              <option value="">All Libraries</option>
+              {filterOptions.libraries.map(l => <option key={l} value={l}>{l}</option>)}
+            </select>
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-400 mb-1">Type</label>
             <select 
@@ -528,43 +693,95 @@ export default function LibraryClipsPage() {
                   </button>
                 </div>
                 
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="font-medium text-gray-200 text-sm">Hover Scrobbling</h3>
-                      <p className="text-xs text-gray-500 mt-0.5">Scrub clips by moving mouse over thumbnails</p>
+                <div className="space-y-6 max-h-[70vh] overflow-y-auto pr-2">
+                  <div className="space-y-4">
+                    <h3 className="font-bold text-white text-lg">Libraries</h3>
+
+                    <div className="space-y-2">
+                      {libraries.map(lib => {
+                        const isUserAdded = (lib as any).isUserAdded;
+                        return (
+                          <div key={lib.id} className="flex items-center justify-between bg-gray-800 p-3 rounded-lg border border-gray-700 group">
+                            <div className="flex items-center gap-3 overflow-hidden flex-1 mr-4">
+                              <input 
+                                type="color" 
+                                value={(lib as any).computedColor || '#3b82f6'} 
+                                onChange={(e) => handleChangeLibraryColor(lib.id, e.target.value)}
+                                className="w-5 h-5 rounded cursor-pointer border-0 p-0 bg-transparent flex-shrink-0" 
+                                title="Change Library Color"
+                              />
+                              <div className="overflow-hidden">
+                                <h4 className="font-medium text-sm text-gray-200 truncate" title={lib.name}>{lib.name}</h4>
+                                <p className="text-[10px] text-gray-500 uppercase mt-0.5 tracking-wider font-semibold">
+                                  {lib.type} {lib.path && `• ${lib.path}`}
+                                </p>
+                              </div>
+                            </div>
+                            {isUserAdded && (lib.type !== 'server' || enableServerLibraryConfig) && (
+                              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button onClick={() => handleRenameLibrary(lib.id, lib.name)} className="text-gray-500 hover:text-blue-400 p-1 flex-shrink-0" title="Rename Library">
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+                                </button>
+                                <button onClick={() => handleRemoveLibrary(lib.id)} className="text-gray-500 hover:text-red-400 p-1 flex-shrink-0" title="Remove Library">
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input type="checkbox" className="sr-only peer" checked={prefs.enableHoverScrobbling} onChange={(e) => updatePref('enableHoverScrobbling', e.target.checked)} />
-                      <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                    </label>
+
+                    <div className="flex gap-2">
+                      {enableServerLibraryConfig && (
+                        <button onClick={handleAddServerLibrary} className="flex-1 px-3 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg text-xs font-medium text-gray-300 transition-colors">
+                          + Server Path
+                        </button>
+                      )}
+                      <button onClick={handleAddLocalLibrary} className="flex-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-xs font-medium text-white transition-colors">
+                        + Local Folder
+                      </button>
+                    </div>
                   </div>
-                  
+
                   <div className="w-full h-px bg-gray-800"></div>
 
-                  <div className="flex flex-col gap-2">
+                  <div className="space-y-4">
+                    <h3 className="font-bold text-white text-lg">Playback</h3>
                     <div className="flex items-center justify-between">
                       <div>
-                        <h3 className="font-medium text-gray-200 text-sm">Browser Cache Limit</h3>
-                        <p className="text-xs text-gray-500 mt-0.5">Max storage for fast clip replay ({prefs.cacheLimitGB} GB)</p>
+                        <h4 className="font-medium text-gray-200 text-sm">Hover Scrobbling</h4>
+                        <p className="text-xs text-gray-500 mt-0.5">Scrub clips by moving mouse over thumbnails</p>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" className="sr-only peer" checked={prefs.enableHoverScrobbling} onChange={(e) => updatePref('enableHoverScrobbling', e.target.checked)} />
+                        <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                      </label>
+                    </div>
+
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="font-medium text-gray-200 text-sm">Browser Cache Limit</h4>
+                          <p className="text-xs text-gray-500 mt-0.5">Max storage for fast clip replay ({prefs.cacheLimitGB} GB)</p>
+                        </div>
+                      </div>
+                      <input 
+                        type="range" 
+                        min="0" 
+                        max="50" 
+                        step="1"
+                        value={prefs.cacheLimitGB} 
+                        onChange={(e) => updatePref('cacheLimitGB', parseInt(e.target.value, 10))}
+                        className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                      />
+                      <div className="flex justify-between text-[10px] text-gray-500">
+                        <span>0 GB (Off)</span>
+                        <span>50 GB</span>
                       </div>
                     </div>
-                    <input 
-                      type="range" 
-                      min="0" 
-                      max="50" 
-                      step="1"
-                      value={prefs.cacheLimitGB} 
-                      onChange={(e) => updatePref('cacheLimitGB', parseInt(e.target.value, 10))}
-                      className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                    />
-                    <div className="flex justify-between text-[10px] text-gray-500">
-                      <span>0 GB (Off)</span>
-                      <span>50 GB</span>
-                    </div>
                   </div>
-                </div>
-              </div>
+                </div>              </div>
             </div>
           )}
 
@@ -608,6 +825,12 @@ export default function LibraryClipsPage() {
 
           {/* Active Filter Badges */}
           <div className="flex flex-wrap gap-2 mb-6">
+            {filterLibrary && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                Library: {filterLibrary}
+                <button onClick={() => setFilterLibrary('')} className="hover:text-white">&times;</button>
+              </span>
+            )}
             {filterType && (
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-blue-500/20 text-blue-300 border border-blue-500/30">
                 Type: {filterType}
@@ -652,7 +875,7 @@ export default function LibraryClipsPage() {
             <div className="text-center py-20 text-red-400">Error: {error}</div>
           ) : groupedEvents.length === 0 ? (
             <div className="text-center py-20 text-gray-400">
-              {events.length === 0 ? 'No clips found in the library. Make sure LIBRARY_CLIPS_PATH is configured correctly.' : 'No clips match the selected filters.'}
+              {events.length === 0 ? `No clips found in your configured libraries. Try adding a Local Folder${enableServerLibraryConfig ? ' or Server Path' : ''}.` : 'No clips match the selected filters.'}
             </div>
           ) : (
             <div className="space-y-12 pb-12">
@@ -665,13 +888,25 @@ export default function LibraryClipsPage() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                     {dateEvents.map(event => {
                       const eventTime = event.timestamp ? new Date(event.timestamp).toLocaleTimeString(undefined, { timeStyle: 'short' }) : '';
+                      const href = event.sourceType === 'client' 
+                        ? `/?clientLibraryId=${encodeURIComponent(event.libraryId || '')}&folder=${encodeURIComponent(event.folderPath)}`
+                        : `/?folder=${encodeURIComponent(event.folderPath)}${event.libraryPath ? `&libraryPath=${encodeURIComponent(event.libraryPath)}` : ''}`;
+                      
                       return (
-                        <Link key={event.id} href={`/?folder=${encodeURIComponent(event.folderPath)}`} className="bg-gray-900 rounded-xl overflow-hidden border border-gray-800 hover:border-blue-500 transition-colors group block relative">
+                        <Link key={event.id} href={href} className="bg-gray-900 rounded-xl overflow-hidden border border-gray-800 hover:border-blue-500 transition-colors group block relative">
                           <div className="aspect-video bg-gray-800 relative overflow-hidden">
                             <HoverScrubber event={event} isEnabled={prefs.enableHoverScrobbling} />
                             
                             {/* Tags overlay */}
-                            <div className="absolute top-2 left-2 flex flex-col gap-1">
+                            <div className="absolute top-2 left-2 flex flex-col items-start gap-1">
+                              {libraries.length > 1 && event.libraryName && (
+                                <span 
+                                  className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider text-white shadow-sm"
+                                  style={{ backgroundColor: event.libraryColor || '#3b82f6' }}
+                                >
+                                  {event.libraryName}
+                                </span>
+                              )}
                               {event.type && (
                                 <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${event.type === 'Sentry' ? 'bg-red-500/80 text-white' : 'bg-blue-500/80 text-white'}`}>
                                   {event.type}
@@ -716,3 +951,4 @@ export default function LibraryClipsPage() {
     </div>
   );
 }
+
