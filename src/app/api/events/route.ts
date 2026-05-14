@@ -5,6 +5,7 @@ import path from 'path';
 interface LibraryEvent {
   id: string;
   folderPath: string;
+  libraryPath?: string;
   title: string;
   date: string;
   timestamp: string | null;
@@ -106,6 +107,7 @@ function findEvents(basePath: string, currentPath: string = '', depth: number = 
       events.push({
         id: Buffer.from(currentPath).toString('base64'),
         folderPath: currentPath,
+        libraryPath: basePath,
         title,
         date: dateStr,
         timestamp: timestampStr,
@@ -136,11 +138,45 @@ function findEvents(basePath: string, currentPath: string = '', depth: number = 
   return events;
 }
 
-export async function GET(request: Request) {
-  const dirPath = process.env.LIBRARY_CLIPS_PATH;
+import yaml from 'yaml';
+import { LibraryConfig } from '@/types/library';
 
-  if (!dirPath) {
-    return NextResponse.json({ error: 'Library clips path is not configured' }, { status: 400 });
+function getServerLibraries(): LibraryConfig[] {
+  const rootDir = process.cwd();
+  const yamlPath = path.join(rootDir, 'libraries.yml');
+  let libraries: LibraryConfig[] = [];
+
+  try {
+    if (fs.existsSync(yamlPath)) {
+      const fileContents = fs.readFileSync(yamlPath, 'utf8');
+      const parsed = yaml.parse(fileContents);
+      if (parsed && Array.isArray(parsed.libraries)) {
+        libraries = parsed.libraries;
+      }
+    }
+  } catch (error) {
+    console.error('Error parsing libraries.yml:', error);
+  }
+
+  return libraries;
+}
+
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const requestedPath = searchParams.get('path');
+  
+  let dirPath = '';
+
+  if (requestedPath) {
+    dirPath = requestedPath;
+  } else {
+    // Default to the first server library if available
+    const serverLibraries = getServerLibraries();
+    const firstServerLib = serverLibraries.find(lib => lib.type === 'server' && lib.path);
+    if (!firstServerLib || !firstServerLib.path) {
+      return NextResponse.json({ error: 'Library clips path is not configured' }, { status: 400 });
+    }
+    dirPath = firstServerLib.path;
   }
 
   try {

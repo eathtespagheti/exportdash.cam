@@ -8,6 +8,6 @@ services:
     volumes:
       - ./clips:/app/clips:ro
     environment:
-      LIBRARY_CLIPS_PATH: /app/clips
       NEXT_PUBLIC_ENABLE_UPLOAD_BOX: false
       NEXT_PUBLIC_ENABLE_LIBRARY_REVIEW: true
+      NEXT_PUBLIC_ENABLE_SERVER_LIBRARY_CONFIG: false
