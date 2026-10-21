@@ -24,8 +24,8 @@
     "html2canvas": "^1.4.1",
     "leaflet": "^1.9.4",
     "mp4-muxer": "^5.2.2",
-    "next": "16.1.4",
-    "protobufjs": "^8.0.0",
+    "next": "^16.4.2",
+    "protobufjs": "^8.8.1",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-leaflet": "^5.0.0"
