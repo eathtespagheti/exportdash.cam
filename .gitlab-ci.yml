@@ -61,10 +61,11 @@ verify:
     - npx tsc --noEmit -p tsconfig.test.json
     - npm run lint
     - npm run test:coverage
-  # The coverage summary line is `Statements   : 13.05% ( 301/2305 )`.
-  # It is deliberately not anchored with `^`: GitLab prefixes each line of the
-  # job trace with a timestamp, so an anchored pattern never matches.
-  coverage: '/Statements\s*:\s*([\d.]+)%/'
+  # Keyed off the table's "All files" row: `All files          |   13.05 | ...`.
+  # The separate "Coverage summary" block is only printed when stdout is a TTY,
+  # so it is absent from the CI trace, and the pattern must not be anchored
+  # because GitLab prefixes every trace line with a timestamp.
+  coverage: '/All files\s*\|\s*([\d.]+)/'
   artifacts:
     paths:
       - coverage/
