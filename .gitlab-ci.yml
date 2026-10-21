@@ -158,3 +158,30 @@ audit:
     paths:
       - audit.json
     expire_in: 1 week
+
+# Weekly dependency check.
+#
+# Runs only on the pipeline schedule, so it never adds minutes to the
+# per-push pipelines. It reports what has a newer release available and
+# keeps a single GitLab issue up to date with it, rather than opening a
+# new issue every week.
+#
+# `npm outdated` reads package.json and the lockfile, so this job does not
+# need an install either.
+dependency-check:
+  stage: verify
+  image: node:26.12.1-alpine
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  script:
+    - |
+      set -eu
+      npm outdated --json > outdated.json || true
+      node scripts/dependency-report.mjs outdated.json > dependency-report.md || true
+      cat dependency-report.md
+      bash scripts/dependency-issue.sh < dependency-report.md
+  artifacts:
+    paths:
+      - outdated.json
+      - dependency-report.md
+    expire_in: 1 week

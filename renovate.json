@@ -1,0 +1,48 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommits"
+  ],
+  "labels": ["type/chore"],
+  "schedule": ["before 5am on monday"],
+  "prConcurrentLimit": 5,
+  "packageRules": [
+    {
+      "description": "TypeScript 7 breaks ESLint: typescript-eslint peers `typescript: >=4.8.4 <6.1.0` and hard-throws on TS 7, which takes the whole lint step down. Revisit when typescript-eslint ships support for TS 7.1.",
+      "matchPackageNames": ["typescript"],
+      "matchUpdateTypes": ["major"],
+      "allowedVersions": "<7.0.0"
+    },
+    {
+      "description": "next and eslint-config-next must move together - the config's peer range is tied to the framework version.",
+      "matchPackageNames": ["next", "eslint-config-next"],
+      "groupName": "next and eslint-config-next"
+    },
+    {
+      "description": "The React runtime and the Testing Library packages must move together.",
+      "matchPackageNames": ["react", "react-dom", "@types/react", "@types/react-dom"],
+      "groupName": "react"
+    },
+    {
+      "description": "The Tailwind packages must move together.",
+      "matchPackageNames": ["tailwindcss", "@tailwindcss/postcss"],
+      "groupName": "tailwind"
+    },
+    {
+      "description": "The Node type definitions must track the Node version the project pins in .nvmrc.",
+      "matchPackageNames": ["@types/node"],
+      "groupName": "node types"
+    },
+    {
+      "description": "Vitest and its plugins must move together.",
+      "matchPackageNames": ["vitest", "@vitest/coverage-v8"],
+      "groupName": "vitest"
+    }
+  ],
+  "vulnerabilityAlerts": {
+    "labels": ["type/bug"],
+    "schedule": ["at any time"]
+  }
+}
