@@ -1,10 +1,16 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
-  // The `@/*` alias is defined in tsconfig.json. Vite resolves tsconfig paths
-  // natively, so the `vite-tsconfig-paths` plugin is not needed.
   resolve: {
-    tsconfigPaths: true,
+    // The `@/*` alias is defined in tsconfig.json. It is mapped explicitly
+    // here rather than through Vite's `resolve.tsconfigPaths` option, which
+    // is Vite 8 only and derives the mapping from the tsconfig's include /
+    // exclude list - so a file excluded from the root tsconfig (as the test
+    // files are) would silently lose the alias.
+    alias: {
+      "@": fileURLToPath(new URL("./src", import.meta.url)),
+    },
   },
   test: {
     environment: "happy-dom",

@@ -1,14 +1,30 @@
 # GitLab CI for ExportDash
 #
-# This pipeline is a verification gate: install -> typecheck -> lint -> test
-# -> build, plus an audit job. It does NOT publish an image - the GHCR image
-# is published by .github/workflows/publish-ghcr.yml, which is left in place.
+# This pipeline is a verification gate: typecheck -> lint -> test -> build,
+# plus an audit job. It does NOT publish an image - the GHCR image is
+# published by .github/workflows/publish-ghcr.yml, which is left in place.
 #
-# Node is pinned in .nvmrc and package.json (engines). The image below must
-# stay in sync with it.
+# Node is pinned in .nvmrc, package.json (engines) and the image below. The
+# image is pinned to the exact patch version so the container build and CI
+# use the same toolchain as a local checkout.
+#
+# The project is on the GitLab Free tier, which includes a limited monthly
+# compute-minute allowance. To stay inside it the work is grouped into as
+# few jobs as possible: the whole verification chain is one job with one
+# `npm ci`, and the audit job needs no install at all. The workflow rules
+# below also skip the duplicate branch pipeline when a merge request is
+# already open for the branch.
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - if: $CI_COMMIT_BRANCH
+    - if: $CI_COMMIT_TAG
 
 default:
-  image: node:26-alpine
+  image: node:26.12.1-alpine
   interruptible: true
 
 stages:
@@ -34,23 +50,18 @@ variables:
     paths:
       - .npm/
 
-typecheck:
+verify:
   extends: .base
   stage: verify
   script:
+    # 1. Application sources (the same set `next build` type-checks).
     - npx tsc --noEmit
-
-lint:
-  extends: .base
-  stage: verify
-  script:
+    # 2. Test sources. The root tsconfig excludes them so the production
+    #    build is not gated on test code, so they are checked separately.
+    - npx tsc --noEmit -p tsconfig.test.json
     - npm run lint
-
-test:
-  extends: .base
-  stage: verify
-  script:
     - npm run test:coverage
+  coverage: '/^Statements\s*:\s*([\d.]+)%/' # regex: code coverage
   artifacts:
     paths:
       - coverage/
@@ -67,8 +78,9 @@ build:
     expire_in: 1 week
 
 audit:
-  extends: .base
   stage: verify
+  # No `npm ci` here: `npm audit` works from the lockfile alone, so this job
+  # costs almost nothing on the Free tier's compute allowance.
   script:
     - |
       set -eu
