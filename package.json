@@ -19,14 +19,14 @@
   "dependencies": {
     "@ffmpeg/ffmpeg": "^0.12.15",
     "@ffmpeg/util": "^0.12.2",
-    "@tabler/icons-react": "^3.36.1",
+    "@tabler/icons-react": "^3.49.0",
     "html2canvas": "^1.4.1",
     "leaflet": "^1.9.4",
     "mp4-muxer": "^5.2.2",
     "next": "16.4.2",
     "protobufjs": "^8.8.1",
-    "react": "19.2.3",
-    "react-dom": "19.2.3",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "react-leaflet": "^5.0.0"
   },
   "devDependencies": {
