@@ -270,3 +270,63 @@ Deliberately open, to be settled during implementation:
   starting point of no hard threshold (report only) is acceptable.
 - Whether the `build` CI job should also produce the GHCR image, or stay a pure
   verification job. Default: verification only; publishing stays in the GitHub workflow.
+
+---
+
+## 8. Execution notes (added after the work landed)
+
+Everything above is the plan as approved. This section records where execution
+differed from it, so the document stays honest about what actually happened.
+
+### Deviations from the plan
+
+- **`@types/node` moved in ticket 1, not ticket 8.** Phase 0 was unbuildable as
+  ordered: `vitest@5.0.5` declares `peerOptional: { "@types/node": "^22.0.0 || >=24.0.0" }`,
+  so `npm install vitest` fails with `ERESOLVE` against the project's `@types/node@^20`.
+  The bump was folded into the Vitest harness commit as a hard prerequisite.
+- **`vite` had to be declared explicitly.** The plan relied on
+  `resolve.tsconfigPaths: true`, which exists **only in Vite 8**. `vite` was an
+  undeclared transitive peer of vitest, so under Vite 6 or 7 the option is
+  silently ignored and every `@/…` import in the tests breaks. The alias is now
+  mapped explicitly in `vitest.config.mts`, which does not depend on the Vite
+  version at all, and `vite` is a declared devDependency.
+- **Test and application type-checking were split.** The root `tsconfig.json`
+  included `**/*.ts`, so a type error in a test file failed `next build` — and
+  therefore the production Docker image. The root config now excludes the tests
+  and `tsconfig.test.json` includes them; CI runs both passes.
+- **The audit gate resolves root causes instead of matching package names.**
+  Matching names meant the *parents* in the unfixable `braces` chain still
+  blocked the build, even though they carry no independent vulnerability. Each
+  advisory is now traced to its cause, and only the specific GHSA is tolerated.
+- **CI was restructured for the Free tier.** Five jobs each doing a full
+  `npm ci` became one `verify` job, a no-install `audit` job and a `build` job.
+- **Node pins became enforcement rather than documentation.** Added `.npmrc`
+  with `engine-strict=true` (verified: a mismatched engine now fails `npm ci`
+  with `EBADENGINE`) and pinned the Dockerfile and CI image to
+  `node:26.12.1-alpine` instead of the floating `node:26-alpine`.
+- **The vulnerability count in §1 was 20 on `main`, not 22.** The 22 figure came
+  from an earlier install with a different tree. Corrected: 20 before, 5 after,
+  all five tracing to the one unfixable `braces` advisory.
+
+### Added beyond the plan
+
+- **A targeted `eslint-disable-next-line` policy for three effects.** The object
+  URL lifecycles and the camera-segment reconciliation are genuinely effects;
+  each disable carries the reason inline.
+- **`renovate.json`** alongside the scheduled dependency-check job, so a future
+  Renovate instance behaves correctly from the start.
+- **Browser smoke check.** The static export was loaded in a real Chromium
+  instance, with and without a persisted localStorage layout config, and
+  confirmed to hydrate with zero console errors, zero page errors and zero
+  hydration mismatches.
+
+### Not done, and why
+
+- **The `mp4-muxer` → Mediabunny migration stayed deferred** (§5, Deferred). It
+  is a functional rewrite of the export path, not a version bump.
+- **Upstream parity was not pursued.** This was discovered during the work: the
+  upstream `nobig-deals/exportdash.cam` is four commits ahead and contains an
+  encrypted-clip decryption feature that the live site serves. That is a feature
+  port with its own deployment implications (Cloudflare Pages Functions), not a
+  dependency upgrade, and it needs a maintainer decision. It is tracked as its
+  own issue.
