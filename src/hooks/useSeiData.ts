@@ -14,6 +14,17 @@ interface UseSeiDataResult {
 }
 
 /**
+ * Shared empty list.
+ *
+ * Resetting the message list has to hand React the *same* array reference it
+ * already holds, otherwise the state change is guaranteed to schedule another
+ * render - which is exactly the cascading render the effect is trying to
+ * avoid. A module-level constant makes the reset a no-op when the list is
+ * already empty.
+ */
+const EMPTY_SEI_MESSAGES: SequenceSeiMessage[] = [];
+
+/**
  * Extended SEI message that includes the absolute frame index across the sequence
  */
 interface SequenceSeiMessage extends SeiWithFrameIndex {
@@ -38,7 +49,11 @@ export function useSeiData(
 ): UseSeiDataResult {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [allSeiMessages, setAllSeiMessages] = useState<SequenceSeiMessage[]>([]);
+  const [allSeiMessages, setAllSeiMessages] = useState<SequenceSeiMessage[]>(EMPTY_SEI_MESSAGES);
+  // The sequence the messages above were extracted from. Messages are only
+  // valid for the sequence they came from, so the visible list is derived by
+  // matching this id against the currently selected sequence.
+  const [messagesSequenceId, setMessagesSequenceId] = useState<string | null>(null);
   const [fps, setFps] = useState(30);
 
   const seiMetadataRef = useRef<SeiMetadataType | null>(null);
@@ -47,8 +62,12 @@ export function useSeiData(
   // Load protobuf schema and extract SEI messages when sequence changes
   useEffect(() => {
     if (!sequence) {
-      setAllSeiMessages([]);
-      setError(null);
+      // Nothing to extract. The message list is not cleared here: it is
+      // derived from `messagesSequenceId`, which no longer matches the (null)
+      // active sequence, so the stale messages are already invisible. Calling
+      // setState synchronously in the effect body would schedule a redundant
+      // render. The error is derived the same way, and the next extraction
+      // clears it when it starts.
       lastSequenceIdRef.current = null;
       return;
     }
@@ -174,6 +193,9 @@ export function useSeiData(
         // --- END DEBUG ---
 
         setAllSeiMessages(allMessages);
+        // Tag the messages with the sequence they belong to, so they are only
+        // shown while that sequence is the active one.
+        setMessagesSequenceId(sequence.id);
         setFps(sequenceFps);
         lastSequenceIdRef.current = sequence.id;
 
@@ -191,31 +213,42 @@ export function useSeiData(
     extractAllSei();
   }, [sequence?.id]);
 
+  // The messages are only valid for the sequence they were extracted from.
+  // Deriving the visible list keeps the effect free of a synchronous reset
+  // while making sure a previous clip's telemetry is never shown for a
+  // different clip.
+  const activeSequenceId = sequence?.id ?? null;
+  const visibleSeiMessages = useMemo(
+    (): SequenceSeiMessage[] =>
+      messagesSequenceId === activeSequenceId ? allSeiMessages : EMPTY_SEI_MESSAGES,
+    [messagesSequenceId, activeSequenceId, allSeiMessages],
+  );
+
   // Find SEI data for current absolute time with GPS interpolation
   const getSeiForTime = useCallback(
     (time: number): SeiData | null => {
-      if (allSeiMessages.length === 0) return null;
+      if (visibleSeiMessages.length === 0) return null;
 
       const absoluteFrameIndex = Math.floor(time * fps);
 
       // Binary search for last SEI message at or before this frame
       let left = 0;
-      let right = allSeiMessages.length - 1;
+      let right = visibleSeiMessages.length - 1;
 
       while (left < right) {
         const mid = Math.floor((left + right + 1) / 2);
-        if (allSeiMessages[mid].absoluteFrameIndex <= absoluteFrameIndex) {
+        if (visibleSeiMessages[mid].absoluteFrameIndex <= absoluteFrameIndex) {
           left = mid;
         } else {
           right = mid - 1;
         }
       }
 
-      const before = allSeiMessages[left];
+      const before = visibleSeiMessages[left];
       if (!before) return null;
 
       // Interpolate GPS between bracketing messages for smoother map tracking
-      const after = allSeiMessages[left + 1];
+      const after = visibleSeiMessages[left + 1];
       if (after && before.sei.latitude_deg && before.sei.longitude_deg &&
           after.sei.latitude_deg && after.sei.longitude_deg) {
         const span = after.absoluteFrameIndex - before.absoluteFrameIndex;
@@ -234,7 +267,7 @@ export function useSeiData(
 
       return before.sei;
     },
-    [allSeiMessages, fps]
+    [visibleSeiMessages, fps]
   );
 
   const seiData = useMemo(() => {
@@ -248,16 +281,17 @@ export function useSeiData(
 
   // Convert back to the standard format for consumers
   const normalizedMessages = useMemo((): SeiWithFrameIndex[] => {
-    return allSeiMessages.map(msg => ({
+    return visibleSeiMessages.map(msg => ({
       frameIndex: msg.absoluteFrameIndex,
       sei: msg.sei,
     }));
-  }, [allSeiMessages]);
+  }, [visibleSeiMessages]);
 
   return {
     seiData,
     isLoading,
-    error,
+    // With no sequence selected there is nothing to report an error about.
+    error: sequence ? error : null,
     allSeiMessages: normalizedMessages,
     fps,
   };
