@@ -1607,6 +1607,9 @@ export function VideoPlayer({
               showTelemetry={showTelemetry}
               showDateTime={showDateTime}
               showMap={showMap}
+              showTripMetrics={teslaMateConfig.enabled && teslaMate.status === 'ready'}
+              tripMetrics={teslaMate}
+              tripMetricsConfig={teslaMateConfig}
               layout={layout}
               layoutConfig={layoutConfig}
               format={format}
