@@ -3,7 +3,7 @@
 import { useRef, useEffect, useState, useCallback, lazy, Suspense, ReactNode, useMemo } from 'react';
 import { useSeiData } from '@/hooks/useSeiData';
 import { TelemetryCard } from './TelemetryCard';
-import { VideoSequence, ANGLE_LABELS, ANGLE_ORDER, VideoMoment, TrimPoints, CameraSegment, LayoutCameraConfig, DEFAULT_LAYOUT_CONFIG, loadLayoutConfig, saveLayoutConfig, FormatType, FORMAT_PRESETS, getFormatPreset, PortraitLayoutType, PortraitCameraConfig, PORTRAIT_LAYOUTS, getPortraitLayout, loadPortraitLayout, savePortraitLayout, loadPortraitCameraConfig, savePortraitCameraConfig, DEFAULT_PORTRAIT_CAMERA_CONFIG, AlignPosition, PortraitAlignConfig, DEFAULT_PORTRAIT_ALIGN_CONFIG, loadPortraitAlignConfig, savePortraitAlignConfig } from '@/types/video';
+import { VideoSequence, ANGLE_LABELS, ANGLE_ORDER, VideoMoment, TrimPoints, CameraSegment, LayoutCameraConfig, loadLayoutConfig, saveLayoutConfig, FormatType, FORMAT_PRESETS, getFormatPreset, PortraitLayoutType, PortraitCameraConfig, getPortraitLayout, loadPortraitLayout, savePortraitLayout, loadPortraitCameraConfig, savePortraitCameraConfig, DEFAULT_PORTRAIT_CAMERA_CONFIG, AlignPosition, PortraitAlignConfig, loadPortraitAlignConfig, savePortraitAlignConfig } from '@/types/video';
 import { findMomentForTime, toAbsoluteTime } from '@/lib/sequence-detector';
 import {
   IconArrowUp,
@@ -184,21 +184,19 @@ export function VideoPlayer({
   const isPortraitFormat = formatPreset.aspectRatio > 0 && formatPreset.aspectRatio < 1;
 
   // Layout camera config
-  const [layoutConfig, setLayoutConfig] = useState<LayoutCameraConfig>(DEFAULT_LAYOUT_CONFIG);
+  //
+  // The persisted values are read in a lazy initialiser rather than in an
+  // effect on mount. The load helpers are SSR-safe (they fall back to the
+  // defaults when localStorage is unavailable) and none of these values affect
+  // the initial render - they are only used once a video is loaded - so
+  // there is no hydration mismatch.
+  const [layoutConfig, setLayoutConfig] = useState<LayoutCameraConfig>(() => loadLayoutConfig());
   const [showLayoutConfig, setShowLayoutConfig] = useState(false);
 
   // Portrait layout state
-  const [portraitLayout, setPortraitLayout] = useState<PortraitLayoutType>('p-1-2');
-  const [portraitCameraConfig, setPortraitCameraConfig] = useState<PortraitCameraConfig>({ ...DEFAULT_PORTRAIT_CAMERA_CONFIG });
-  const [portraitAlignConfig, setPortraitAlignConfig] = useState<PortraitAlignConfig>({ ...DEFAULT_PORTRAIT_ALIGN_CONFIG });
-
-  // Load layout config from localStorage on mount
-  useEffect(() => {
-    setLayoutConfig(loadLayoutConfig());
-    setPortraitLayout(loadPortraitLayout());
-    setPortraitCameraConfig(loadPortraitCameraConfig());
-    setPortraitAlignConfig(loadPortraitAlignConfig());
-  }, []);
+  const [portraitLayout, setPortraitLayout] = useState<PortraitLayoutType>(() => loadPortraitLayout());
+  const [portraitCameraConfig, setPortraitCameraConfig] = useState<PortraitCameraConfig>(() => loadPortraitCameraConfig());
+  const [portraitAlignConfig, setPortraitAlignConfig] = useState<PortraitAlignConfig>(() => loadPortraitAlignConfig());
 
   const handleLayoutConfigChange = useCallback((newConfig: LayoutCameraConfig) => {
     setLayoutConfig(newConfig);
@@ -272,16 +270,29 @@ export function VideoPlayer({
   );
 
   // Map SEI data with event.json GPS fallback
+  const eventLat = sequence?.event?.est_lat;
+  const eventLon = sequence?.event?.est_lon;
   const mapSeiData = useMemo(() => {
     if (seiData?.latitude_deg && seiData?.longitude_deg) return seiData;
-    if (sequence?.event?.est_lat && sequence?.event?.est_lon) {
-      return { ...(seiData || {}), latitude_deg: sequence.event.est_lat, longitude_deg: sequence.event.est_lon } as typeof seiData;
+    if (eventLat && eventLon) {
+      return { ...(seiData || {}), latitude_deg: eventLat, longitude_deg: eventLon } as typeof seiData;
     }
     return seiData;
-  }, [seiData, sequence?.event]);
+  }, [seiData, eventLat, eventLon]);
 
-  // Reset state when sequence changes
-  useEffect(() => {
+  // Reset state when sequence changes.
+  //
+  // This is React's documented "adjusting state when a prop changes" pattern:
+  // the state is corrected while rendering, so React re-runs this component
+  // immediately instead of committing a stale frame and then scheduling a
+  // second render pass from an effect.
+  //
+  // `lastSequenceId` tracks the previous `sequence?.id` *including* the null
+  // case, so the reset fires exactly when it used to - on every change of the
+  // selected sequence, and only when the new sequence actually has moments.
+  const [lastSequenceId, setLastSequenceId] = useState<string | undefined>(sequence?.id);
+  if (sequence?.id !== lastSequenceId) {
+    setLastSequenceId(sequence?.id);
     if (sequence && sequence.moments.length > 0) {
       setCurrentMomentIndex(0);
       setLocalTime(0);
@@ -300,18 +311,33 @@ export function VideoPlayer({
       setCameraSegments([{ startTime: 0, endTime: sequence.totalDuration, angle: defaultAngle }]);
       setUseCustomCameraTrack(false);
     }
-  }, [sequence?.id]);
+  }
 
-  // Auto-enable custom camera track when user adds segments
-  useEffect(() => {
-    if (hasCustomCameraTrack && !useCustomCameraTrack) {
+  // Auto-enable custom camera track when the user adds segments.
+  //
+  // This is a one-way latch: the track switches on the first time the user
+  // adds camera segments, but the user can switch it back off again by hand.
+  // Applying it while rendering (rather than in an effect) keeps it from
+  // costing an extra render pass.
+  const [lastHasCustomCameraTrack, setLastHasCustomCameraTrack] = useState(hasCustomCameraTrack);
+  if (hasCustomCameraTrack !== lastHasCustomCameraTrack) {
+    setLastHasCustomCameraTrack(hasCustomCameraTrack);
+    if (hasCustomCameraTrack) {
       setUseCustomCameraTrack(true);
     }
-  }, [hasCustomCameraTrack, useCustomCameraTrack]);
+  }
 
   // Create object URLs for current moment's videos
+  //
+  // Object URLs are an external resource: they have to be created when the
+  // moment changes and revoked when it is replaced. That is exactly what an
+  // effect is for. The setState calls below are unavoidable - the URLs are
+  // created as a side effect of the effect, so they cannot be derived during
+  // render - and they are not cascading renders, because the effect only
+  // re-runs when the moment actually changes.
   useEffect(() => {
     if (!currentMoment) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- see the note above: the object URLs are an external resource
       setVideoUrls({});
       return;
     }
@@ -320,6 +346,7 @@ export function VideoPlayer({
     for (const video of currentMoment.videos) {
       urls[video.angle] = URL.createObjectURL(video.file);
     }
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- see the note above: the object URLs are an external resource
     setVideoUrls(urls);
 
     return () => {
@@ -328,8 +355,12 @@ export function VideoPlayer({
   }, [currentMoment?.id]);
 
   // Preload next moment's videos for seamless transition
+  //
+  // Same reasoning as the effect above: preloading means creating object
+  // URLs ahead of time, which is an external-resource side effect.
   useEffect(() => {
     if (!sequence || currentMomentIndex >= sequence.moments.length - 1) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- see the note above: the object URLs are an external resource
       setPreloadedUrls({});
       return;
     }
@@ -339,6 +370,7 @@ export function VideoPlayer({
     for (const video of nextMoment.videos) {
       urls[video.angle] = URL.createObjectURL(video.file);
     }
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- see the note above: the object URLs are an external resource
     setPreloadedUrls(urls);
 
     return () => {
@@ -426,6 +458,12 @@ export function VideoPlayer({
 
   // Switch cameras based on camera segments (when custom track enabled)
   // Works both during playback AND when scrubbing timeline
+  //
+  // The selected angle is not purely derived: the user can override it by
+  // hand, and that override has to survive until the playhead moves into a
+  // different segment. Reconciling the two therefore needs an effect - the
+  // effect is the "external event" (the playhead moving) that decides when
+  // the derived segment angle should take over.
   useEffect(() => {
     if (!useCustomCameraTrack || cameraSegments.length === 0) return;
 
@@ -441,6 +479,7 @@ export function VideoPlayer({
     if (currentSegment && currentSegment.angle !== selectedAngle) {
       // Save playback state before switching so video resumes after remount
       pendingRestoreRef.current = { time: localTime, playing: isPlaying };
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reconciling the user's angle override with the segment under the playhead
       setSelectedAngle(currentSegment.angle);
     }
   }, [useCustomCameraTrack, absoluteTime, cameraSegments, selectedAngle, localTime, isPlaying]);

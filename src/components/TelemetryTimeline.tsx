@@ -476,17 +476,6 @@ export function TelemetryTimeline({
     };
   }, [draggingAngle]);
 
-  if (duration <= 0) {
-    return null;
-  }
-
-  // Format time as m:ss
-  const formatTimeShort = (seconds: number) => {
-    const m = Math.floor(seconds / 60);
-    const s = Math.floor(seconds % 60);
-    return `${m}:${s.toString().padStart(2, '0')}`;
-  };
-
   // Calculate trim values (viewStart/viewEnd/viewDuration already calculated above for getTimeFromEvent)
   const trimStart = trimPoints?.inPoint ?? 0;
   const trimEnd = trimPoints?.outPoint ?? duration;
@@ -502,6 +491,12 @@ export function TelemetryTimeline({
   const outPointPosition = trimPoints ? (trimPoints.outPoint / duration) * 100 : 100;
 
   // Generate time markers
+  //
+  // NOTE: every hook must be called before the `duration <= 0` early return
+  // below. If the component ever rendered with duration <= 0 and then
+  // re-rendered with a positive duration, React would see more hooks than
+  // during the previous render and throw. The early return is therefore
+  // placed after the last hook in this component.
   const timeMarkers = useMemo(() => {
     const markers: number[] = [];
     const interval = viewDuration > 120 ? 30 : 15;
@@ -528,6 +523,17 @@ export function TelemetryTimeline({
         endTime: Math.min(seg.endTime, rangeEnd),
       }));
   }, [cameraSegments, isTrimming, trimStart, trimEnd, duration]);
+
+  if (duration <= 0) {
+    return null;
+  }
+
+  // Format time as m:ss
+  const formatTimeShort = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  };
 
   return (
     <div className="bg-gray-800/50 rounded-xl p-3 space-y-2">

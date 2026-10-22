@@ -1,0 +1,191 @@
+# GitLab CI for ExportDash
+#
+# This pipeline is a verification gate: typecheck -> lint -> test -> build,
+# plus an audit job. It does NOT publish an image - the GHCR image is
+# published by .github/workflows/publish-ghcr.yml, which is left in place.
+#
+# Node is pinned in .nvmrc, package.json (engines) and the image below. The
+# image is pinned to the exact patch version so the container build and CI
+# use the same toolchain as a local checkout.
+#
+# The project is on the GitLab Free tier, which includes a limited monthly
+# compute-minute allowance. To stay inside it the work is grouped into as
+# few jobs as possible: the whole verification chain is one job with one
+# `npm ci`, and the audit job needs no install at all. The workflow rules
+# below also skip the duplicate branch pipeline when a merge request is
+# already open for the branch.
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - if: $CI_COMMIT_BRANCH
+    - if: $CI_COMMIT_TAG
+
+default:
+  image: node:26.12.1-alpine
+  interruptible: true
+
+stages:
+  - verify
+  - build
+
+variables:
+  # Next.js telemetry is noise in CI logs.
+  NEXT_TELEMETRY_DISABLED: "1"
+  # npm writes its cache under a project-local directory so it can be cached.
+  npm_config_cache: "$CI_PROJECT_DIR/.npm"
+
+# Every job installs from the committed lockfile with `npm ci`, reusing the
+# cached npm tarballs. `npm ci` is used rather than `npm install` so CI can
+# never silently resolve a different dependency tree than the lockfile.
+.base:
+  before_script:
+    - npm ci --no-audit --no-fund --cache "$CI_PROJECT_DIR/.npm"
+  cache:
+    key:
+      files:
+        - package-lock.json
+    paths:
+      - .npm/
+
+verify:
+  extends: .base
+  stage: verify
+  script:
+    # 1. Application sources (the same set `next build` type-checks).
+    - npx tsc --noEmit
+    # 2. Test sources. The root tsconfig excludes them so the production
+    #    build is not gated on test code, so they are checked separately.
+    - npx tsc --noEmit -p tsconfig.test.json
+    - npm run lint
+    - npm run test:coverage
+  # Keyed off the table's "All files" row: `All files          |   13.05 | ...`.
+  # The separate "Coverage summary" block is only printed when stdout is a TTY,
+  # so it is absent from the CI trace, and the pattern must not be anchored
+  # because GitLab prefixes every trace line with a timestamp.
+  coverage: '/All files\s*\|\s*([\d.]+)/'
+  artifacts:
+    paths:
+      - coverage/
+    expire_in: 1 week
+
+build:
+  extends: .base
+  stage: build
+  script:
+    - npm run build
+  artifacts:
+    paths:
+      - out/
+    expire_in: 1 week
+
+audit:
+  stage: verify
+  # No `npm ci` here: `npm audit` works from the lockfile alone, so this job
+  # costs almost nothing on the Free tier's compute allowance.
+  script:
+    - |
+      set -eu
+      # `braces` CVE-2026-93687 (GHSA-vfj7-8cjw-p6xm) has no patched release:
+      # first_patched_version is null and 3.0.3 is the latest. It is reachable
+      # only through eslint-config-next -> @next/eslint-plugin-next ->
+      # fast-glob -> micromatch -> braces. The globs it parses are this
+      # repository's own static file patterns; no user input reaches a glob
+      # matcher, and the package is dev-only and never ships to the static
+      # site.
+      #
+      # npm's only suggested remediation is a breaking *downgrade* to
+      # eslint-config-next@14.2.35, which is strictly worse. So the known
+      # unfixable advisory is tolerated and everything else fails the build.
+      #
+      # The check resolves each advisory to its root cause rather than
+      # matching package names, so the parents in the chain
+      # (eslint-config-next, @next/eslint-plugin-next, fast-glob, micromatch)
+      # are tolerated for exactly the same reason, while an unrelated
+      # vulnerability in any of them would still block.
+      set +e
+      npm audit --json > audit.json
+      set -e
+      node -e '
+        const report = require("./audit.json");
+        const vulns = report.vulnerabilities ?? {};
+
+        const TOLERATED_ADVISORIES = new Set([
+          "https://github.com/advisories/GHSA-vfj7-8cjw-p6xm",
+        ]);
+
+        // Resolve a vulnerability to the advisories that actually cause it,
+        // following the "via" chain of dependent packages.
+        const rootCauses = (name, seen = new Set()) => {
+          if (seen.has(name)) return [];
+          seen.add(name);
+          const vuln = vulns[name];
+          if (!vuln) return [];
+          const causes = [];
+          for (const via of vuln.via ?? []) {
+            if (typeof via === "string") {
+              causes.push(...rootCauses(via, seen));
+            } else {
+              causes.push(via.url ?? via.title);
+            }
+          }
+          return causes;
+        };
+
+        const blocking = [];
+        for (const [name, vuln] of Object.entries(vulns)) {
+          if (vuln.severity !== "critical" && vuln.severity !== "high") continue;
+          const causes = rootCauses(name);
+          const tolerated =
+            causes.length > 0 &&
+            causes.every((cause) => TOLERATED_ADVISORIES.has(cause));
+          if (!tolerated) {
+            blocking.push([name, vuln, causes]);
+          }
+        }
+
+        for (const [name, vuln, causes] of blocking) {
+          console.error(
+            `BLOCKING ${vuln.severity}: ${name} (${vuln.range})` +
+              (causes.length ? ` <- ${causes.join(", ")}` : ""),
+          );
+        }
+
+        if (blocking.length > 0) process.exit(1);
+        console.log(
+          "audit: no blocking advisories (known unfixable braces CVE tolerated)",
+        );
+      '
+  artifacts:
+    paths:
+      - audit.json
+    expire_in: 1 week
+
+# Weekly dependency check.
+#
+# Runs only on the pipeline schedule, so it never adds minutes to the
+# per-push pipelines. It reports what has a newer release available and
+# keeps a single GitLab issue up to date with it, rather than opening a
+# new issue every week.
+#
+# `npm outdated` reads package.json and the lockfile, so this job does not
+# need an install either.
+dependency-check:
+  stage: verify
+  image: node:26.12.1-alpine
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  script:
+    - |
+      set -eu
+      npm outdated --json > outdated.json || true
+      node scripts/dependency-report.mjs outdated.json > dependency-report.md || true
+      cat dependency-report.md
+      bash scripts/dependency-issue.sh < dependency-report.md
+  artifacts:
+    paths:
+      - outdated.json
+      - dependency-report.md
+    expire_in: 1 week

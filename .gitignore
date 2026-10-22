@@ -17,6 +17,9 @@
 /.next/
 /out/
 
+# cloudflare (wrangler local state)
+/.wrangler/
+
 # production
 /build
 
@@ -39,3 +42,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# opencode local session artifacts
+/.opencode/

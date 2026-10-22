@@ -1,5 +1,10 @@
 # Stage 1: Dependencies and Build
-FROM node:20-alpine AS builder
+#
+# The builder image is pinned to the exact Node patch version recorded in
+# .nvmrc, so the container build, the CI pipeline and a local checkout all
+# use the same toolchain. Bumping it is a deliberate, reviewable change -
+# see the dependency-update tooling issue.
+FROM node:26.12.1-alpine AS builder
 WORKDIR /app
 
 COPY package.json package-lock.json* ./

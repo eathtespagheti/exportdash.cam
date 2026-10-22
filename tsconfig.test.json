@@ -1,0 +1,21 @@
+{
+  // Type-check configuration for the test suite.
+  //
+  // The root tsconfig.json deliberately excludes test files so that
+  // `next build` - and therefore the production Docker image - is not gated
+  // on the type-correctness of test code. This config puts them back, and CI
+  // runs it as a second typecheck pass so nothing goes unchecked.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node", "vitest/globals"]
+  },
+  "include": [
+    "next-env.d.ts",
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "vitest.config.mts",
+    "vitest.setup.ts"
+  ],
+  "exclude": ["node_modules"]
+}

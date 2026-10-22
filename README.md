@@ -16,23 +16,41 @@
 - **Interactive Map** — Live GPS tracking synced with video playback
 - **Event Timeline** — Visual timeline showing brake, gas, turn signals, and steering events
 - **Video Export** — Export clips with telemetry burned into the video
+- **Encrypted Clip Support** — Decrypt Tesla 2026.20+ encrypted recordings in-browser using your Tesla account token
 - **100% Client-Side** — All processing happens in your browser, no uploads required
 
 ## Deploy
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.app/new/template?template=https://github.com/nobig-deals/exportdash.cam)
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/nobig-deals/exportdash.cam)
-[![Deploy to Heroku](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy/?template=https://github.com/nobig-deals/exportdash.cam)
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.app/new/template?template=https://github.com/eathtespagheti/exportdash.cam)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/eathtespagheti/exportdash.cam)
+[![Deploy to Heroku](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy/?template=https://github.com/eathtespagheti/exportdash.cam)
+
+## Requirements
+
+- **Node.js 26.12.1** (or any `>=26 <27` — the range is enforced by `engines` plus
+  `engine-strict=true` in `.npmrc`, so a mismatched Node fails the install)
+- **npm 11.20.0**
+
+The exact version is pinned in `.nvmrc`. If you use [nvm](https://github.com/nvm-sh/nvm):
+
+```bash
+nvm install   # reads .nvmrc
+nvm use
+```
+
+`package.json` also records `packageManager: "npm@11.20.0"`. npm itself ignores
+that field; it is there for tooling that honours it (such as corepack), and it
+documents the npm version the lockfile was produced with.
 
 ## Quick Start
 
 ```bash
 # Clone the repo
-git clone https://github.com/nobig-deals/exportdash.cam.git
+git clone https://gitlab.com/eathtespagheti/exportdash.cam.git
 cd exportdash.cam
 
-# Install dependencies
-npm install
+# Install dependencies from the lockfile
+npm ci
 
 # Start dev server
 npm run dev
@@ -40,7 +58,44 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000) and drop your TeslaCam folder.
 
+Use `npm install` (rather than `npm ci`) when you intend to change dependencies —
+it updates `package-lock.json` as well.
+
+> This repository lives on GitLab. It is mirrored to
+> [github.com/eathtespagheti/exportdash.cam](https://github.com/eathtespagheti/exportdash.cam),
+> which is what the GHCR image is published from. GitLab is the canonical
+> source — issues and merge requests are tracked there.
+
+### Development commands
+
+| Command | What it does |
+|---|---|
+| `npm run dev` | Start the development server |
+| `npm run build` | Production build (static export into `out/`) |
+| `npm run lint` | ESLint, with the React Compiler rules enabled |
+| `npm test` | Run the test suite once |
+| `npm run test:watch` | Run the test suite in watch mode |
+| `npm run test:coverage` | Run the tests with a coverage report |
+| `npx tsc --noEmit` | Type-check the application sources |
+| `npx tsc --noEmit -p tsconfig.test.json` | Type-check the test sources |
+
+The application and the tests are type-checked separately on purpose: the root
+`tsconfig.json` excludes the test files, so a type error in a test can never
+break the production build or the published container image. CI runs both
+passes.
+
+### CI
+
+`.gitlab-ci.yml` runs the whole verification chain on every push and merge
+request: typecheck → lint → test → build, plus an `npm audit` gate. The
+container image is published separately to GHCR by
+`.github/workflows/publish-ghcr.yml`.
+
 ### Docker
+
+The image is a two-stage build: a **Node 26.12.1** builder produces the static
+export, and the runtime stage is plain `nginx` serving it. Node never runs in
+production.
 
 ```bash
 # Build image
@@ -87,13 +142,49 @@ Clip 5: 10:34:00 (60s) ─┘
 Clip 6: 10:45:00 (60s) ─→ New sequence (12min gap)
 ```
 
+## Encrypted Clips (firmware 2026.20+)
+
+Recent Tesla firmware encrypts dashcam and Sentry recordings on the USB drive.
+When you drop encrypted clips, ExportDash detects them and offers to decrypt
+them in your browser:
+
+1. Sign in at [dashcam.tesla.com](https://dashcam.tesla.com) and grab your
+   dashcam token from DevTools → Network → any `/api/1/` request →
+   `Authorization: Bearer …`.
+2. Paste it into the prompt. ExportDash fetches the per-file decryption keys from
+   Tesla and decrypts the video locally.
+
+**How it stays private:**
+
+- Your video **never leaves your device** — decryption runs entirely in the
+  browser using the native WebCrypto AES engine.
+- Only per-file identifiers and ownership metadata (never footage) are sent to
+  Tesla to retrieve the decryption keys — exactly what Tesla's own web viewer
+  sends.
+- Your token is stored only in your browser (localStorage, opt-in "remember")
+  and is sent only to Tesla. Treat it like a password; it expires periodically.
+
+**Why a proxy:** browsers can't call `dashcam.tesla.com` directly from another
+origin (CORS). The key request is routed same-origin through a thin reverse
+proxy that forwards only to Tesla — the Next.js dev server handles this locally
+(`next.config.ts`), a Cloudflare Pages Function handles it on exportdash.cam
+(`functions/tesla-decrypt/[[path]].ts`), and nginx handles it in the Docker image
+(`nginx.conf`). Point it elsewhere with `NEXT_PUBLIC_TESLA_KEY_URL` if needed.
+The proxy adds no credentials of its own; it only relays your authenticated
+request to Tesla. Note that this means your bearer token transits the proxy host
+on its way to Tesla — it is never logged or stored there, but if you'd rather it
+never left your machine, run the Docker image yourself and use that instance.
+
 ## Tech Stack
 
-- **Framework:** Next.js 15 with App Router
-- **Styling:** Tailwind CSS
+- **Framework:** Next.js 16 with App Router (static export)
+- **UI:** React 19, TypeScript 6
+- **Styling:** Tailwind CSS 4
 - **Video:** Native HTML5 video with WebCodecs for export
 - **Maps:** Leaflet with OpenStreetMap
 - **Protobuf:** protobufjs for SEI metadata decoding
+- **Tests:** Vitest 5 with Testing Library
+- **Lint:** ESLint 10 with the React Compiler rules
 
 ## Keyboard Shortcuts
 
@@ -123,14 +214,21 @@ src/
 │   ├── MapView.tsx       # GPS map overlay
 │   ├── VideoExporter.tsx # WebCodecs-based export
 │   ├── DropZone.tsx      # File/folder drop handling
+│   ├── DecryptDialog.tsx # Encrypted-clip token prompt & decrypt progress
 │   └── LoadingScreen.tsx # Processing progress UI
 ├── hooks/
-│   └── useSeiData.ts     # SEI extraction & time sync
+│   ├── useSeiData.ts     # SEI extraction & time sync
+│   └── __tests__/        # Hook tests
 ├── lib/
 │   ├── dashcam-mp4.ts    # MP4 parsing & SEI extraction
-│   └── sequence-detector.ts # Clip merging logic
-└── types/
-    └── video.ts          # TypeScript definitions
+│   ├── tesla-crypto.ts   # MD5 + AES-128-CBC primitives (verified vs test vectors)
+│   ├── tesla-decrypt.ts  # Encrypted container parsing, key fetch & decryption
+│   ├── sequence-detector.ts # Clip merging logic
+│   └── __tests__/        # Unit tests (+ shared MP4 fixture helpers)
+├── types/
+│   └── video.ts          # TypeScript definitions
+functions/
+└── tesla-decrypt/        # Cloudflare Pages proxy for Tesla's key API
 ```
 
 ## Credits
