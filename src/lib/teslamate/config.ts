@@ -41,7 +41,7 @@ export const DEFAULT_TESLAMATE_CONFIG: TeslaMateConfig = {
   pressureUnit: "bar",
   elevationUnit: "m",
   liveFields: ["battery", "power"],
-  exportTripFields: TRIP_EXPORT_DEFAULT,
+  tripFields: TRIP_EXPORT_DEFAULT,
   exportLiveFields: [],
   panelCorner: "top-right",
 };
@@ -77,9 +77,9 @@ export function loadTeslaMateConfig(): TeslaMateConfig {
         ? stored.token
         : null,
     liveFields: stringArray(stored.liveFields, DEFAULT_TESLAMATE_CONFIG.liveFields),
-    exportTripFields: stringArray(
-      stored.exportTripFields,
-      DEFAULT_TESLAMATE_CONFIG.exportTripFields,
+    tripFields: stringArray(
+      stored.tripFields,
+      DEFAULT_TESLAMATE_CONFIG.tripFields,
     ),
     exportLiveFields: stringArray(
       stored.exportLiveFields,

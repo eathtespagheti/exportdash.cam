@@ -13,7 +13,9 @@
 import type {
   DistanceUnit,
   ElevationUnit,
+  PositionSample,
   PressureUnit,
+  RangeType,
   TemperatureUnit,
   TripSummary,
 } from "./types";
@@ -208,4 +210,104 @@ const BY_KEY = new Map<string, FieldDef>(
 
 export function fieldByKey(key: string): FieldDef | undefined {
   return BY_KEY.get(key);
+}
+
+/**
+ * The value a trip field reads, or null when the trip does not have it.
+ *
+ * The two derived fields — average speed and energy used — return null, so
+ * their formatters fall back to the trip itself.
+ */
+export function tripFieldValue(key: string, trip: TripSummary | null): unknown {
+  if (!trip) return null;
+  switch (key) {
+    case "trip_distance":
+      return trip.distanceKm;
+    case "trip_duration":
+      return trip.durationMin;
+    case "trip_max_speed":
+      return trip.speedMaxKmh;
+    case "trip_max_power":
+      return trip.powerMaxKw;
+    case "trip_min_power":
+      return trip.powerMinKw;
+    case "trip_start_battery":
+      return trip.startBatteryPct;
+    case "trip_end_battery":
+      return trip.endBatteryPct;
+    case "trip_ascent":
+      return trip.ascentM;
+    case "trip_descent":
+      return trip.descentM;
+    case "trip_start_place":
+      return trip.startPlace;
+    case "trip_end_place":
+      return trip.endPlace;
+    case "trip_outside_temp":
+      return trip.outsideTempAvgC;
+    case "trip_inside_temp":
+      return trip.insideTempAvgC;
+    default:
+      return null;
+  }
+}
+
+/** The value a live field reads, or null when it was never measured. */
+export function liveFieldValue(
+  key: string,
+  sample: PositionSample | null,
+  rangeType: RangeType,
+): unknown {
+  if (!sample) return null;
+  switch (key) {
+    case "battery":
+      return sample.batteryPct;
+    case "usable_battery":
+      return sample.usableBatteryPct;
+    case "power":
+      return sample.powerKw;
+    case "range":
+      return rangeType === "est"
+        ? sample.estRangeKm
+        : rangeType === "rated"
+          ? sample.ratedRangeKm
+          : sample.idealRangeKm;
+    case "odometer":
+      return sample.odometerKm;
+    case "elevation":
+      return sample.elevationM;
+    case "tpms_fl":
+      return sample.tpmsFl;
+    case "tpms_fr":
+      return sample.tpmsFr;
+    case "tpms_rl":
+      return sample.tpmsRl;
+    case "tpms_rr":
+      return sample.tpmsRr;
+    case "outside_temp":
+      return sample.outsideTempC;
+    case "inside_temp":
+      return sample.insideTempC;
+    default:
+      return null;
+  }
+}
+
+/** The unit settings a rendered field uses. */
+export function unitsFrom(
+  speedUnit: "mph" | "kmh",
+  config: {
+    distanceUnit: DistanceUnit;
+    temperatureUnit: TemperatureUnit;
+    pressureUnit: PressureUnit;
+    elevationUnit: ElevationUnit;
+  },
+): Units {
+  return {
+    speedUnit,
+    distanceUnit: config.distanceUnit,
+    temperatureUnit: config.temperatureUnit,
+    pressureUnit: config.pressureUnit,
+    elevationUnit: config.elevationUnit,
+  };
 }

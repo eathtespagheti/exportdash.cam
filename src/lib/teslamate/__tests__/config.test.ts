@@ -34,7 +34,7 @@ describe("loadTeslaMateConfig", () => {
       pressureUnit: "psi",
       elevationUnit: "ft",
       liveFields: ["battery"],
-      exportTripFields: ["trip_distance"],
+      tripFields: ["trip_distance"],
       exportLiveFields: ["power"],
       panelCorner: "bottom-left",
     };
@@ -125,9 +125,9 @@ describe("the defaults", () => {
   });
 
   it("keeps the geocoded place names out of the export by default", () => {
-    expect(DEFAULT_TESLAMATE_CONFIG.exportTripFields).not.toContain("trip_start_place");
-    expect(DEFAULT_TESLAMATE_CONFIG.exportTripFields).not.toContain("trip_end_place");
-    expect(DEFAULT_TESLAMATE_CONFIG.exportTripFields.length).toBe(
+    expect(DEFAULT_TESLAMATE_CONFIG.tripFields).not.toContain("trip_start_place");
+    expect(DEFAULT_TESLAMATE_CONFIG.tripFields).not.toContain("trip_end_place");
+    expect(DEFAULT_TESLAMATE_CONFIG.tripFields.length).toBe(
       TRIP_FIELDS.length - 2,
     );
   });

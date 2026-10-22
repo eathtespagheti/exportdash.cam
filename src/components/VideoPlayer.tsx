@@ -2,6 +2,8 @@
 
 import { useRef, useEffect, useState, useCallback, lazy, Suspense, ReactNode, useMemo } from 'react';
 import { useSeiData } from '@/hooks/useSeiData';
+import { useTeslaMate } from '@/hooks/useTeslaMate';
+import { loadTeslaMateConfig } from '@/lib/teslamate/config';
 import { TelemetryCard } from './TelemetryCard';
 import { VideoSequence, ANGLE_LABELS, ANGLE_ORDER, VideoMoment, TrimPoints, CameraSegment, LayoutCameraConfig, loadLayoutConfig, saveLayoutConfig, FormatType, FORMAT_PRESETS, getFormatPreset, PortraitLayoutType, PortraitCameraConfig, getPortraitLayout, loadPortraitLayout, savePortraitLayout, loadPortraitCameraConfig, savePortraitCameraConfig, DEFAULT_PORTRAIT_CAMERA_CONFIG, AlignPosition, PortraitAlignConfig, loadPortraitAlignConfig, savePortraitAlignConfig } from '@/types/video';
 import { findMomentForTime, toAbsoluteTime } from '@/lib/sequence-detector';
@@ -48,6 +50,7 @@ import { LayoutConfigPopover } from './LayoutConfigPopover';
 import { PortraitCameraSelector } from './PortraitCameraSelector';
 import { TelemetryTimeline } from './TelemetryTimeline';
 import { TeslaMateSettings } from './TeslaMateSettings';
+import { TripMetricsPanel } from './TripMetricsPanel';
 import { Tooltip } from './Tooltip';
 
 // Lazy load MapView to avoid SSR issues with Leaflet
@@ -171,6 +174,8 @@ export function VideoPlayer({
     typeof initConfig.showDateTime === 'boolean' ? initConfig.showDateTime : true
   );
   const [showTeslaMateSettings, setShowTeslaMateSettings] = useState(false);
+  const [teslaMateConfig, setTeslaMateConfig] = useState(() => loadTeslaMateConfig());
+  const teslaMate = useTeslaMate(sequence);
 
   // Persist overlay toggle states to localStorage
   useEffect(() => {
@@ -1136,6 +1141,16 @@ export function VideoPlayer({
               </div>
             )}
 
+            {/* TeslaMate Trip Metrics - configurable corner */}
+            {teslaMateConfig.enabled && teslaMate.status === 'ready' && (
+              <TripMetricsPanel
+                trip={teslaMate.tripForMoment(currentMomentIndex)}
+                sample={teslaMate.sampleForMoment(currentMomentIndex, localTime)}
+                config={teslaMateConfig}
+                speedUnit={speedUnit}
+              />
+            )}
+
             {/* Map Overlay - skip if portrait layout has map slot, or PiP corner has map */}
             {showMap && !(isPortraitFormat && getPortraitLayout(portraitLayout).hasMap) && !(layout === 'pip' && layoutConfig.pip.corners.includes('map')) && (
               <div className={`absolute w-[180px] h-[180px] rounded-lg overflow-hidden shadow-xl opacity-90 hover:opacity-100 transition-opacity pointer-events-auto ${
@@ -1709,7 +1724,11 @@ export function VideoPlayer({
       {showTeslaMateSettings && (
         <TeslaMateSettings
           onClose={() => setShowTeslaMateSettings(false)}
-          onSaved={() => setShowTeslaMateSettings(false)}
+          onSaved={() => {
+            setTeslaMateConfig(loadTeslaMateConfig());
+            teslaMate.reload();
+            setShowTeslaMateSettings(false);
+          }}
         />
       )}
     </div>

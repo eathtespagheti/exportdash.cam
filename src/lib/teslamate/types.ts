@@ -35,7 +35,7 @@ export interface TeslaMateConfig {
   pressureUnit: PressureUnit;
   elevationUnit: ElevationUnit;
   liveFields: string[];
-  exportTripFields: string[];
+  tripFields: string[];
   exportLiveFields: string[];
   panelCorner: PanelCorner;
 }
