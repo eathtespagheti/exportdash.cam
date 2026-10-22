@@ -24,6 +24,33 @@ export class GrafanaError extends Error {
   }
 }
 
+/**
+ * A plain-language explanation for a Grafana failure.
+ *
+ * The distinction matters: "the browser blocked this" and "Grafana is down"
+ * need completely different actions from the user, and a single generic
+ * "something went wrong" tells them nothing.
+ */
+export function grafanaErrorMessage(error: GrafanaError): string {
+  switch (error.kind) {
+    case "cors":
+      return (
+        "The browser blocked the request. Grafana sends no CORS headers — add " +
+        "them to your reverse proxy, or point ExportDash at /grafana-proxy."
+      );
+    case "auth":
+      return "Grafana rejected the token. A service account with Viewer access is enough.";
+    case "noDatasource":
+      return "No TeslaMate datasource found in Grafana.";
+    case "notFound":
+      return "Grafana could not find that endpoint. Check the address.";
+    case "network":
+      return error.message || "Could not reach Grafana.";
+    case "query":
+      return `The TeslaMate datasource did not answer the query. ${error.message}`;
+  }
+}
+
 export interface GrafanaConnection {
   /** Absolute (`https://…`) or relative (`/grafana-proxy`). */
   baseUrl: string;
@@ -65,30 +92,22 @@ export function buildUrl(baseUrl: string, path: string): string {
   return `${base}${suffix}`;
 }
 
-/**
- * Origins that have answered at least one request.
- *
- * The browser reports a CORS rejection and a genuine network failure
- * identically — both are a rejected `fetch`. This set is the only signal
- * available: if an origin has worked before and now fails, the most likely
- * cause is that the response stopped carrying `Access-Control-Allow-Origin`.
- * It is a heuristic, not a certainty, so the message says so.
- */
-const succeededOrigins = new Set<string>();
-
 function isAbsolute(url: string): boolean {
   return /^https?:\/\//i.test(url);
 }
 
-/** Classifies a rejected fetch. Same-origin requests can never be a CORS problem. */
+/**
+ * Classifies a rejected fetch.
+ *
+ * The browser reports a CORS rejection and a genuine network failure
+ * identically, so the two cannot be told apart from here. What can be told
+ * apart is the origin: a same-origin request can never be blocked by CORS, so
+ * a failure there is the network. A cross-origin request failing is far more
+ * likely to be a missing `Access-Control-Allow-Origin` header — which is
+ * exactly what Grafana does not send.
+ */
 function kindForFetchFailure(url: string): GrafanaErrorKind {
-  if (!isAbsolute(url)) return "network";
-  try {
-    const origin = new URL(url).origin;
-    return succeededOrigins.has(origin) ? "cors" : "network";
-  } catch {
-    return "network";
-  }
+  return isAbsolute(url) ? "cors" : "network";
 }
 
 async function request(
@@ -112,14 +131,6 @@ async function request(
       kindForFetchFailure(url),
       `Could not reach Grafana at ${conn.baseUrl}.`,
     );
-  }
-
-  if (isAbsolute(url)) {
-    try {
-      succeededOrigins.add(new URL(url).origin);
-    } catch {
-      /* not a parseable URL; nothing to record */
-    }
   }
 
   if (!response.ok) {

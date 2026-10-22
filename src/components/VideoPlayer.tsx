@@ -35,6 +35,7 @@ import {
   IconScissors,
   IconWand,
   IconClock,
+  IconPlugConnected,
   IconSettings2,
   IconAspectRatio,
   IconBrandTiktok,
@@ -46,6 +47,7 @@ import { VideoExporter } from './VideoExporter';
 import { LayoutConfigPopover } from './LayoutConfigPopover';
 import { PortraitCameraSelector } from './PortraitCameraSelector';
 import { TelemetryTimeline } from './TelemetryTimeline';
+import { TeslaMateSettings } from './TeslaMateSettings';
 import { Tooltip } from './Tooltip';
 
 // Lazy load MapView to avoid SSR issues with Leaflet
@@ -168,6 +170,7 @@ export function VideoPlayer({
   const [showDateTime, setShowDateTime] = useState<boolean>(
     typeof initConfig.showDateTime === 'boolean' ? initConfig.showDateTime : true
   );
+  const [showTeslaMateSettings, setShowTeslaMateSettings] = useState(false);
 
   // Persist overlay toggle states to localStorage
   useEffect(() => {
@@ -1527,6 +1530,14 @@ export function VideoPlayer({
                 <IconClock size={16} />
               </button>
             </Tooltip>
+            <Tooltip content="TeslaMate trip metrics" position="top">
+              <button
+                onClick={() => setShowTeslaMateSettings(true)}
+                className="p-1.5 rounded bg-gray-700 text-gray-400 hover:bg-gray-600 transition-all"
+              >
+                <IconPlugConnected size={16} />
+              </button>
+            </Tooltip>
 
             {/* Divider */}
             <div className="w-px h-4 bg-gray-600 mx-1" />
@@ -1694,6 +1705,13 @@ export function VideoPlayer({
           />
         )}
       </div>
+
+      {showTeslaMateSettings && (
+        <TeslaMateSettings
+          onClose={() => setShowTeslaMateSettings(false)}
+          onSaved={() => setShowTeslaMateSettings(false)}
+        />
+      )}
     </div>
   );
 }

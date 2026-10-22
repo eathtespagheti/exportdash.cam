@@ -156,15 +156,12 @@ describe("queryFrames", () => {
     });
   });
 
-  it("maps a rejected fetch to a network error", async () => {
-    // A fresh module instance: the CORS heuristic remembers origins that have
-    // answered before, and this test needs the "never contacted" case.
-    vi.resetModules();
-    const { queryFrames: freshQuery } = await import("@/lib/teslamate/client");
-
+  it("maps a rejected same-origin fetch to a network error", async () => {
     fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
 
-    await expect(freshQuery({ baseUrl: "https://h", token: null, datasource: DS }, QUERY)).rejects.toMatchObject({
+    await expect(
+      queryFrames({ baseUrl: "/grafana-proxy", token: null, datasource: DS }, QUERY),
+    ).rejects.toMatchObject({
       kind: "network",
     });
   });
@@ -189,15 +186,14 @@ describe("queryFrames", () => {
 });
 
 describe("cors detection", () => {
-  it("reports a cors error when a later request to a previously working origin fails", async () => {
-    vi.resetModules();
-    const { queryFrames: freshQuery } = await import("@/lib/teslamate/client");
+  it("maps a rejected cross-origin fetch to a cors error", async () => {
+    // The browser reports a CORS rejection and a network failure identically,
+    // so a cross-origin failure is reported as the likely cause.
+    fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
 
-    fetchMock.mockResolvedValueOnce(jsonResponse(frameBody(["t"], [[1]])));
-    await freshQuery({ baseUrl: "https://h", token: null, datasource: DS }, QUERY);
-
-    fetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
-    await expect(freshQuery({ baseUrl: "https://h", token: null, datasource: DS }, QUERY)).rejects.toMatchObject({
+    await expect(
+      queryFrames({ baseUrl: "https://h", token: null, datasource: DS }, QUERY),
+    ).rejects.toMatchObject({
       kind: "cors",
     });
   });
