@@ -28,6 +28,15 @@ export interface GrafanaConnection {
   /** Absolute (`https://…`) or relative (`/grafana-proxy`). */
   baseUrl: string;
   token: string | null;
+  /**
+   * The datasource to query. Grafana requires a datasource on every query and
+   * rejects the whole request without one, so the client attaches it rather
+   * than leaving it to the query builders.
+   *
+   * `null` until one has been discovered — which is why
+   * {@link listDatasources} does not need it.
+   */
+  datasource: { uid: string; type: string } | null;
 }
 
 export interface DatasourceInfo {
@@ -156,9 +165,26 @@ export async function queryFrames(
   conn: GrafanaConnection,
   queries: SqlQuery[],
 ): Promise<Record<string, Frame>> {
+  if (!conn.datasource) {
+    throw new GrafanaError(
+      "noDatasource",
+      "No datasource has been chosen to query.",
+    );
+  }
+
   const url = buildUrl(conn.baseUrl, "/api/ds/query");
   const response = await request(conn, url, "POST", {
-    queries,
+    // Grafana rejects the request outright if any query lacks a datasource, and
+    // without `rawQuery`/`format` it assumes a time-series query and fails
+    // every statement with "db has no time column".
+    queries: queries.map((q) => ({
+      ...q,
+      datasource: conn.datasource,
+      rawQuery: true,
+      format: "table",
+      intervalMs: 1000,
+      maxDataPoints: 50000,
+    })),
     from: "now-24h",
     to: "now",
   });

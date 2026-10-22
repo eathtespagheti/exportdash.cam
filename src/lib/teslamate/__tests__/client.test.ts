@@ -41,6 +41,9 @@ afterEach(() => {
 
 const QUERY: SqlQuery[] = [{ refId: "A", rawSql: "SELECT 1" }];
 
+/** The datasource every query must name. Grafana rejects a query without one. */
+const DS = { uid: "PC98BA2F4D77E1A42", type: "grafana-postgresql-datasource" };
+
 describe("buildUrl", () => {
   it("joins a base URL and a path with exactly one slash", () => {
     expect(buildUrl("/grafana-proxy", "/api/ds/query")).toBe("/grafana-proxy/api/ds/query");
@@ -59,7 +62,7 @@ describe("queryFrames", () => {
     fetchMock.mockResolvedValue(jsonResponse(frameBody(["t", "v"], [[1, 2], [10, 20]])));
 
     const frames = await queryFrames(
-      { baseUrl: "https://h/grafana", token: "tok" },
+      { baseUrl: "https://h/grafana", token: "tok", datasource: DS },
       QUERY,
     );
 
@@ -69,7 +72,8 @@ describe("queryFrames", () => {
     expect(init.headers.Authorization).toBe("Bearer tok");
 
     const body = JSON.parse(init.body);
-    expect(body.queries).toEqual([{ refId: "A", rawSql: "SELECT 1" }]);
+    expect(body.queries[0].refId).toBe("A");
+    expect(body.queries[0].rawSql).toBe("SELECT 1");
     expect(body.from).toBeDefined();
     expect(body.to).toBeDefined();
 
@@ -81,16 +85,56 @@ describe("queryFrames", () => {
   it("omits the Authorization header when there is no token", async () => {
     fetchMock.mockResolvedValue(jsonResponse(frameBody(["t"], [[1]])));
 
-    await queryFrames({ baseUrl: "https://h", token: null }, QUERY);
+    await queryFrames({ baseUrl: "https://h", token: null, datasource: DS }, QUERY);
 
     const init = fetchMock.mock.calls[0][1];
     expect(init.headers.Authorization).toBeUndefined();
   });
 
+  it("names the datasource on every query, as Grafana requires", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(frameBody(["t"], [[1]])));
+
+    await queryFrames(
+      { baseUrl: "https://h", token: null, datasource: DS },
+      [
+        { refId: "A", rawSql: "SELECT 1" },
+        { refId: "B", rawSql: "SELECT 2" },
+      ],
+    );
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.queries).toHaveLength(2);
+    for (const q of body.queries) {
+      expect(q.datasource).toEqual(DS);
+    }
+  });
+
+  it("declares each query as raw SQL in table format", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(frameBody(["t"], [[1]])));
+
+    await queryFrames({ baseUrl: "https://h", token: null, datasource: DS }, QUERY);
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    const q = body.queries[0];
+    // Without these Grafana assumes a time-series query and demands a time
+    // column, failing every statement with "db has no time column".
+    expect(q.rawQuery).toBe(true);
+    expect(q.format).toBe("table");
+    expect(typeof q.intervalMs).toBe("number");
+    expect(typeof q.maxDataPoints).toBe("number");
+  });
+
+  it("refuses to query before a datasource has been chosen", async () => {
+    await expect(
+      queryFrames({ baseUrl: "https://h", token: null, datasource: null }, QUERY),
+    ).rejects.toMatchObject({ kind: "noDatasource" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("treats a frame with empty values as zero rows rather than throwing", async () => {
     fetchMock.mockResolvedValue(jsonResponse(frameBody(["t", "v"], [[], []])));
 
-    const frames = await queryFrames({ baseUrl: "https://h", token: null }, QUERY);
+    const frames = await queryFrames({ baseUrl: "https://h", token: null, datasource: DS }, QUERY);
 
     expect(frames.A.rowCount).toBe(0);
     expect(frames.A.fields).toEqual(["t", "v"]);
@@ -99,7 +143,7 @@ describe("queryFrames", () => {
   it("treats a missing frames array as zero rows", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ results: { A: { status: 200, frames: [] } } }));
 
-    const frames = await queryFrames({ baseUrl: "https://h", token: null }, QUERY);
+    const frames = await queryFrames({ baseUrl: "https://h", token: null, datasource: DS }, QUERY);
 
     expect(frames.A.rowCount).toBe(0);
   });
@@ -107,7 +151,7 @@ describe("queryFrames", () => {
   it("maps a 401 to an auth error", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ message: "Unauthorized" }, 401));
 
-    await expect(queryFrames({ baseUrl: "https://h", token: "bad" }, QUERY)).rejects.toMatchObject({
+    await expect(queryFrames({ baseUrl: "https://h", token: "bad", datasource: DS }, QUERY)).rejects.toMatchObject({
       kind: "auth",
     });
   });
@@ -120,7 +164,7 @@ describe("queryFrames", () => {
 
     fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
 
-    await expect(freshQuery({ baseUrl: "https://h", token: null }, QUERY)).rejects.toMatchObject({
+    await expect(freshQuery({ baseUrl: "https://h", token: null, datasource: DS }, QUERY)).rejects.toMatchObject({
       kind: "network",
     });
   });
@@ -130,7 +174,7 @@ describe("queryFrames", () => {
       jsonResponse({ results: { A: { status: 500, error: "db query error: boom" } } }),
     );
 
-    await expect(queryFrames({ baseUrl: "https://h", token: null }, QUERY)).rejects.toMatchObject({
+    await expect(queryFrames({ baseUrl: "https://h", token: null, datasource: DS }, QUERY)).rejects.toMatchObject({
       kind: "query",
     });
   });
@@ -138,7 +182,7 @@ describe("queryFrames", () => {
   it("raises a GrafanaError carrying a kind", async () => {
     fetchMock.mockResolvedValue(jsonResponse({}, 401));
 
-    const err = await queryFrames({ baseUrl: "https://h", token: "bad" }, QUERY).catch((e) => e);
+    const err = await queryFrames({ baseUrl: "https://h", token: "bad", datasource: DS }, QUERY).catch((e) => e);
     expect(err).toBeInstanceOf(GrafanaError);
     expect(err.kind).toBe("auth");
   });
@@ -150,10 +194,10 @@ describe("cors detection", () => {
     const { queryFrames: freshQuery } = await import("@/lib/teslamate/client");
 
     fetchMock.mockResolvedValueOnce(jsonResponse(frameBody(["t"], [[1]])));
-    await freshQuery({ baseUrl: "https://h", token: null }, QUERY);
+    await freshQuery({ baseUrl: "https://h", token: null, datasource: DS }, QUERY);
 
     fetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
-    await expect(freshQuery({ baseUrl: "https://h", token: null }, QUERY)).rejects.toMatchObject({
+    await expect(freshQuery({ baseUrl: "https://h", token: null, datasource: DS }, QUERY)).rejects.toMatchObject({
       kind: "cors",
     });
   });
@@ -168,7 +212,7 @@ describe("listDatasources", () => {
       ]),
     );
 
-    const list = await listDatasources({ baseUrl: "https://h", token: null });
+    const list = await listDatasources({ baseUrl: "https://h", token: null, datasource: null });
 
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe("https://h/api/datasources");
@@ -182,7 +226,7 @@ describe("listDatasources", () => {
   it("maps a 403 to an auth error", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ message: "Forbidden" }, 403));
 
-    await expect(listDatasources({ baseUrl: "https://h", token: "bad" })).rejects.toMatchObject({
+    await expect(listDatasources({ baseUrl: "https://h", token: "bad", datasource: null })).rejects.toMatchObject({
       kind: "auth",
     });
   });
