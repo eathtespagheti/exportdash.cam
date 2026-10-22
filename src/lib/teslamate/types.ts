@@ -15,6 +15,11 @@ export type PanelCorner = "top-left" | "top-right" | "bottom-left" | "bottom-rig
 
 /** Everything the user can configure about the integration. */
 export interface TeslaMateConfig {
+  /**
+   * Whether the integration is switched on. Off until the user connects, so
+   * the app never reaches out to a Grafana nobody asked it to.
+   */
+  enabled: boolean;
   /** Absolute (`https://…`) → direct transport; relative (`/grafana-proxy`) → same-origin. */
   grafanaUrl: string;
   /** Service-account token. Only persisted when `rememberToken` is true. */

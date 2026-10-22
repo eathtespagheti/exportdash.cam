@@ -25,6 +25,9 @@ const TRIP_EXPORT_DEFAULT = TRIP_FIELDS.map((f) => f.key).filter(
 );
 
 export const DEFAULT_TESLAMATE_CONFIG: TeslaMateConfig = {
+  // Off until the user connects, so the app never calls out to a Grafana
+  // nobody asked it to.
+  enabled: false,
   // The bundled proxy, so a self-hosted deployment needs no CORS setup.
   grafanaUrl: "/grafana-proxy",
   token: null,

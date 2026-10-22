@@ -113,6 +113,7 @@ describe("resolveBaseUrl", () => {
 
 describe("the defaults", () => {
   it("points self-hosters at the bundled proxy", () => {
+    expect(DEFAULT_TESLAMATE_CONFIG.enabled).toBe(false);
     expect(DEFAULT_TESLAMATE_CONFIG.grafanaUrl).toBe("/grafana-proxy");
     expect(DEFAULT_TESLAMATE_CONFIG.rememberToken).toBe(false);
     expect(DEFAULT_TESLAMATE_CONFIG.token).toBeNull();
