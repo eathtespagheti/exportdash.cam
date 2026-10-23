@@ -80,4 +80,16 @@ describe("sampleAt", () => {
   it("carries a sparse value forward past the end of the series", () => {
     expect(sampleAt(series, 9999)!.tpmsFl).toBe(2.9);
   });
+
+  it("never interpolates a sparse field, even between two recorded values", () => {
+    // Both neighbours have a tire pressure. The midpoint must still be the
+    // last recorded value: the car did not measure 2.85.
+    const both = buildSeries([s(0, 10, 2.8), s(1000, 20, 2.9)]);
+    expect(sampleAt(both, 500)!.tpmsFl).toBe(2.8);
+  });
+
+  it("carries a sparse value to the very end even when the last row lacks it", () => {
+    const tail = buildSeries([s(0, 10, 2.8), s(1000, 20, null)]);
+    expect(sampleAt(tail, 5000)!.tpmsFl).toBe(2.8);
+  });
 });

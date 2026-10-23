@@ -67,33 +67,39 @@ export function selectTripForClip(
   clipEndMs: number,
   trips: TripSummary[],
 ): TripSummary | null {
-  let bestClosed: TripSummary | null = null;
-  let bestClosedOverlap = -1;
-  let bestOpen: TripSummary | null = null;
-  let bestOpenStart = Number.NEGATIVE_INFINITY;
+  let bestPositive: TripSummary | null = null;
+  let bestPositiveOverlap = -1;
+  let bestTouching: TripSummary | null = null;
 
   for (const trip of trips) {
     if (!intersects(clipStartMs, clipEndMs, trip)) continue;
     const overlap = overlapMs(clipStartMs, clipEndMs, trip);
 
-    if (trip.endMs === null) {
-      if (trip.startMs > bestOpenStart) {
-        bestOpen = trip;
-        bestOpenStart = trip.startMs;
+    if (overlap <= 0) {
+      // Merely touching the clip — only usable for a zero-length clip, and
+      // never in preference to a trip that really covers it.
+      if (bestTouching === null || trip.startMs > bestTouching.startMs) {
+        bestTouching = trip;
       }
       continue;
     }
 
     const better =
-      overlap > bestClosedOverlap ||
-      (overlap === bestClosedOverlap && bestClosed !== null && trip.startMs > bestClosed.startMs);
+      bestPositive === null ||
+      // A closed trip beats an open one: every in-progress drive runs to
+      // "now", so an open trip overlaps every later window.
+      (trip.endMs !== null && bestPositive.endMs === null) ||
+      ((trip.endMs !== null) === (bestPositive.endMs !== null) &&
+        (overlap > bestPositiveOverlap ||
+          (overlap === bestPositiveOverlap && trip.startMs > bestPositive.startMs)));
+
     if (better) {
-      bestClosed = trip;
-      bestClosedOverlap = overlap;
+      bestPositive = trip;
+      bestPositiveOverlap = overlap;
     }
   }
 
-  return bestClosed ?? bestOpen;
+  return bestPositive ?? bestTouching;
 }
 
 /**

@@ -157,6 +157,38 @@ describe("column selection", () => {
     expect(sql).toContain("start_place");
     expect(sql).toContain("end_place");
   });
+
+  it("does not join positions when the drives table lacks the position ids", () => {
+    // The join itself needs start_position_id/end_position_id; without them the
+    // statement would fail even though positions has battery_level.
+    const withoutIds: AvailableColumns = {
+      ...FULL,
+      drives: new Set(
+        [...FULL.drives].filter(
+          (c) => c !== "start_position_id" && c !== "end_position_id",
+        ),
+      ),
+    };
+    const sql = tripQuery(CAR_ID, START_MS, END_MS, withoutIds).rawSql;
+
+    expect(sql).not.toContain("start_battery_level");
+    expect(sql).not.toContain("JOIN positions sp");
+  });
+
+  it("does not join addresses when the drives table lacks the address ids", () => {
+    const withoutIds: AvailableColumns = {
+      ...FULL,
+      drives: new Set(
+        [...FULL.drives].filter(
+          (c) => c !== "start_address_id" && c !== "end_address_id",
+        ),
+      ),
+    };
+    const sql = tripQuery(CAR_ID, START_MS, END_MS, withoutIds).rawSql;
+
+    expect(sql).not.toContain("start_place");
+    expect(sql).not.toContain("JOIN addresses sa");
+  });
 });
 
 describe("input validation", () => {

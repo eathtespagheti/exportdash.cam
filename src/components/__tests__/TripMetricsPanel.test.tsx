@@ -129,4 +129,16 @@ describe("TripMetricsPanel", () => {
     expect(screen.getByText(/in progress/i)).toBeTruthy();
     expect(screen.getByText("—")).toBeTruthy();
   });
+
+  it("does not show a running distance for a trip still in progress", () => {
+    // TeslaMate can report 0 for a drive that has only just started; that is
+    // not a 0 km trip.
+    renderPanel({
+      trip: { ...TRIP, endMs: null, distanceKm: 0 },
+      config: { ...DEFAULT_TESLAMATE_CONFIG, tripFields: ["trip_distance"] },
+    });
+
+    expect(screen.queryByText("0.0 km")).toBeNull();
+    expect(screen.getByText("—")).toBeTruthy();
+  });
 });

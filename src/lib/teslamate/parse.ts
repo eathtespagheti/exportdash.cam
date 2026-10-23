@@ -50,9 +50,14 @@ export function parseCars(frame: Frame | undefined): CarInfo[] {
 export function parseTrips(frame: Frame | undefined): TripSummary[] {
   const trips: TripSummary[] = [];
   for (let i = 0; i < (frame?.rowCount ?? 0); i++) {
+    const startMs = numberAt(frame, "start_date", i);
+    // A drive with no readable start cannot be placed in time; putting it at
+    // the epoch would make it match every clip.
+    if (startMs === null) continue;
+
     trips.push({
       id: numberAt(frame, "id", i) ?? 0,
-      startMs: numberAt(frame, "start_date", i) ?? 0,
+      startMs,
       endMs: numberAt(frame, "end_date", i),
       distanceKm: numberAt(frame, "distance", i),
       durationMin: numberAt(frame, "duration_min", i),
@@ -102,7 +107,11 @@ const POSITION_FIELDS: Array<[string, keyof PositionSample]> = [
 export function parseSamples(frame: Frame | undefined): PositionSample[] {
   const samples: PositionSample[] = [];
   for (let i = 0; i < (frame?.rowCount ?? 0); i++) {
-    const sample = { tMs: numberAt(frame, "t_ms", i) ?? 0 } as PositionSample;
+    const tMs = numberAt(frame, "t_ms", i);
+    // A sample with no readable time cannot be interpolated against.
+    if (tMs === null) continue;
+
+    const sample = { tMs } as PositionSample;
     for (const [column, field] of POSITION_FIELDS) {
       (sample as unknown as Record<string, unknown>)[field] = numberAt(frame, column, i);
     }

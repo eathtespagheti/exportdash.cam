@@ -1,7 +1,9 @@
 'use client';
 
 import {
+  DASH,
   fieldByKey,
+  isProvisionalTripField,
   liveFieldValue,
   tripFieldValue,
   unitsFrom,
@@ -40,13 +42,16 @@ function rowsFor(
   value: (key: string, field: FieldDef) => unknown,
   units: ReturnType<typeof unitsFrom>,
   trip?: TripSummary,
+  hide?: (key: string) => boolean,
 ): Row[] {
   return keys
     .map((key) => fieldByKey(key))
     .filter((field): field is FieldDef => Boolean(field))
     .map((field) => ({
       label: field.label,
-      text: field.format(value(field.key, field), units, trip),
+      text: hide?.(field.key)
+        ? DASH
+        : field.format(value(field.key, field), units, trip),
     }));
 }
 
@@ -76,19 +81,20 @@ export function TripMetricsPanel({
     );
   }
 
+  const isProvisional = trip.endMs === null;
+
   const tripRows = rowsFor(
     config.tripFields,
     (key) => tripFieldValue(key, trip),
     units,
     trip,
+    (key) => isProvisional && isProvisionalTripField(key),
   );
   const liveRows = rowsFor(
     config.liveFields,
     (key) => liveFieldValue(key, sample, config.rangeType),
     units,
   );
-
-  const isProvisional = trip.endMs === null;
 
   return (
     <div className={`${corner} pointer-events-none flex flex-col gap-1 items-start`}>

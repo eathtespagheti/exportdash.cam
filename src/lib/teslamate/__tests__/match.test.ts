@@ -117,6 +117,16 @@ describe("selectTripForClip", () => {
     expect(selectTripForClip(5000, 5000, [t])).toBe(t);
     expect(selectTripForClip(1000, 1000, [t])).toBe(t);
   });
+
+  it("does not prefer a closed trip that merely touches the clip", () => {
+    // The closed trip ends exactly where the clip starts. It has no overlap,
+    // so the open trip that really covers the clip must win.
+    const closedTouching = trip({ id: 1, startMs: 0, endMs: 5000 });
+    const openCovering = trip({ id: 2, startMs: 4000, endMs: null });
+    expect(selectTripForClip(5000, 20_000, [closedTouching, openCovering])).toBe(
+      openCovering,
+    );
+  });
 });
 
 describe("spansMultipleTrips", () => {

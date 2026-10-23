@@ -134,14 +134,14 @@ export function tripQuery(
     joins.push("JOIN cars c ON c.id = d.car_id");
   }
 
-  if (cols.positions.has("battery_level")) {
+  if (cols.positions.has("battery_level") && cols.drives.has("start_position_id") && cols.drives.has("end_position_id")) {
     select.push("sp.battery_level AS start_battery_level");
     select.push("ep.battery_level AS end_battery_level");
     joins.push("LEFT JOIN positions sp ON sp.id = d.start_position_id");
     joins.push("LEFT JOIN positions ep ON ep.id = d.end_position_id");
   }
 
-  if (cols.addresses.has("display_name")) {
+  if (cols.addresses.has("display_name") && cols.drives.has("start_address_id") && cols.drives.has("end_address_id")) {
     select.push("sa.display_name AS start_place");
     select.push("ea.display_name AS end_place");
     joins.push("LEFT JOIN addresses sa ON sa.id = d.start_address_id");

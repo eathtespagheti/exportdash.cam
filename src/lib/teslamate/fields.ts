@@ -138,7 +138,11 @@ const tripEnergy: FieldDef = {
     const start = finite(trip?.startIdealRangeKm);
     const end = finite(trip?.endIdealRangeKm);
     const efficiency = finite(trip?.efficiencyKwhPerKm);
-    if (start === null || end === null || efficiency === null) return DASH;
+    // An unconfigured car reports 0; that is not an efficiency, and dividing
+    // by it would claim the trip used no energy.
+    if (start === null || end === null || efficiency === null || efficiency <= 0) {
+      return DASH;
+    }
     return formatEnergy((start - end) * efficiency);
   },
 };
@@ -291,6 +295,25 @@ export function liveFieldValue(
     default:
       return null;
   }
+}
+
+/**
+ * Whether a trip field only becomes meaningful once the drive has finished.
+ *
+ * A drive in progress has no final distance, duration, energy or elevation
+ * change, so showing the running value would imply a total that is still
+ * moving. These read as "—" until the drive closes.
+ */
+export function isProvisionalTripField(key: string): boolean {
+  return (
+    key === "trip_distance" ||
+    key === "trip_duration" ||
+    key === "trip_avg_speed" ||
+    key === "trip_energy" ||
+    key === "trip_ascent" ||
+    key === "trip_descent" ||
+    key === "trip_end_battery"
+  );
 }
 
 /** The unit settings a rendered field uses. */

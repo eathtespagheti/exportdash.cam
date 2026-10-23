@@ -71,6 +71,13 @@ export function loadTeslaMateConfig(): TeslaMateConfig {
   return {
     ...DEFAULT_TESLAMATE_CONFIG,
     ...stored,
+    // A tampered or legacy blob must not be able to crash the app with a
+    // non-string address.
+    grafanaUrl:
+      typeof stored.grafanaUrl === "string"
+        ? stored.grafanaUrl
+        : DEFAULT_TESLAMATE_CONFIG.grafanaUrl,
+    enabled: stored.enabled === true,
     // A token is only ever handed back when the user asked for it to be kept.
     token:
       stored.rememberToken === true && typeof stored.token === "string"

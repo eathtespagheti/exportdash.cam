@@ -95,7 +95,7 @@ export function useTeslaMate(sequence: VideoSequence | null): TeslaMateState {
     let cancelled = false;
 
     const run = async () => {
-      if (!config.enabled || !config.grafanaUrl.trim()) {
+      if (!config.enabled || typeof config.grafanaUrl !== "string" || !config.grafanaUrl.trim()) {
         setStatus("unconfigured");
         setError(null);
         return;
@@ -132,6 +132,15 @@ export function useTeslaMate(sequence: VideoSequence | null): TeslaMateState {
               ? postgres.find((d) => d.uid === config.datasourceUid)
               : undefined) ?? postgres[0];
 
+          if (config.datasourceUid && !postgres.some((d) => d.uid === config.datasourceUid)) {
+            // The stored UID is gone. Falling back silently would query a
+            // different database than the one the user chose.
+            throw new GrafanaError(
+              "noDatasource",
+              "The datasource you chose is no longer in Grafana. Pick it again in the settings.",
+            );
+          }
+
           const probeConnection: GrafanaConnection = {
             ...connection,
             datasource: { uid: chosen.uid, type: chosen.type },
@@ -163,7 +172,9 @@ export function useTeslaMate(sequence: VideoSequence | null): TeslaMateState {
         if (sequence && carId !== null) {
           const startMs = clipWallClockMs(sequence.startTime, 0, config.tzOffsetMinutes);
           const endMs = clipWallClockMs(sequence.endTime, 0, config.tzOffsetMinutes);
-          const key = `${discovery.datasource.uid}|${carId}|${startMs}|${endMs}`;
+          // The origin is part of the key: the same datasource UID on a
+          // different Grafana is a different database.
+          const key = `${baseUrl}|${discovery.datasource.uid}|${carId}|${startMs}|${endMs}`;
 
           const cached = seriesCache.get(key);
           if (cached) {

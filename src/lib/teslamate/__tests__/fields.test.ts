@@ -111,6 +111,17 @@ describe("derived trip fields", () => {
     expect(key("trip_energy").format(null, METRIC, trip())).toBe("—");
     expect(key("trip_avg_speed").format(null, METRIC)).toBe("—");
   });
+
+  it("treats an unconfigured efficiency as missing energy, not zero", () => {
+    // A car with efficiency 0 is unconfigured; dividing by it would claim the
+    // trip used no energy at all.
+    const t = trip({
+      startIdealRangeKm: 280,
+      endIdealRangeKm: 270,
+      efficiencyKwhPerKm: 0,
+    });
+    expect(key("trip_energy").format(null, METRIC, t)).toBe("—");
+  });
 });
 
 describe("missing data never renders as a number", () => {

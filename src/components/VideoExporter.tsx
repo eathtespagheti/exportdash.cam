@@ -5,7 +5,7 @@ import { IconDownload, IconPlayerStop, IconLoader2, IconCheck } from '@tabler/ic
 import { SeiData, SeiWithFrameIndex } from '@/lib/dashcam-mp4';
 import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
 import { VideoSequence, TrimPoints, CameraSegment, formatDuration, LayoutCameraConfig, DEFAULT_LAYOUT_CONFIG, FormatType, getFormatPreset, PortraitLayoutType, PortraitCameraConfig, getPortraitLayout, DEFAULT_PORTRAIT_CAMERA_CONFIG, AlignPosition, PortraitAlignConfig, DEFAULT_PORTRAIT_ALIGN_CONFIG } from '@/types/video';
-import { fieldByKey, liveFieldValue, tripFieldValue, unitsFrom } from '@/lib/teslamate/fields';
+import { fieldByKey, isProvisionalTripField, liveFieldValue, tripFieldValue, unitsFrom } from '@/lib/teslamate/fields';
 import type { PositionSample, TeslaMateConfig, TripSummary } from '@/lib/teslamate/types';
 import { Tooltip } from './Tooltip';
 
@@ -132,15 +132,19 @@ export function drawTripMetrics(
   const lines: Array<{ label: string; text: string }> = [];
 
   if (trip) {
+    const provisional = trip.endMs === null;
     for (const key of config.tripFields) {
       const field = fieldByKey(key);
       if (!field) continue;
       lines.push({
         label: field.label,
-        text: field.format(tripFieldValue(key, trip), units, trip),
+        text:
+          provisional && isProvisionalTripField(key)
+            ? '—'
+            : field.format(tripFieldValue(key, trip), units, trip),
       });
     }
-    if (trip.endMs === null) {
+    if (provisional) {
       lines.push({ label: '', text: 'In progress' });
     }
   } else {

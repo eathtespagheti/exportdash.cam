@@ -36,7 +36,9 @@ export function grafanaErrorMessage(error: GrafanaError): string {
     case "cors":
       return (
         "The browser blocked the request. Grafana sends no CORS headers — add " +
-        "them to your reverse proxy, or point ExportDash at /grafana-proxy."
+        "them to your reverse proxy, or point ExportDash at /grafana-proxy. " +
+        "(Cross-origin requests blocked by the browser can also mean the host is " +
+        "simply unreachable.)"
       );
     case "auth":
       return "Grafana rejected the token. A service account with Viewer access is enough.";
