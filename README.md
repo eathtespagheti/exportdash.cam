@@ -93,16 +93,17 @@ container image is published separately to GHCR by
 
 ### Docker
 
-The image is a two-stage build: a **Node 26.12.1** builder produces the static
-export, and the runtime stage is plain `nginx` serving it. Node never runs in
-production.
+The image is a two-stage build: a **Node 26.12.1** builder produces the
+standalone Next.js server, and the runtime stage runs it with `node startup.js`
+on port 3000. The library feature needs server-side API routes, so the app is no
+longer a static export.
 
 ```bash
 # Build image
 docker build -t exportdash .
 
 # Run container
-docker run -p 8080:80 exportdash
+docker run -p 3000:3000 exportdash
 ```
 
 Open [http://localhost:8080](http://localhost:8080)
@@ -166,14 +167,101 @@ them in your browser:
 
 **Why a proxy:** browsers can't call `dashcam.tesla.com` directly from another
 origin (CORS). The key request is routed same-origin through a thin reverse
-proxy that forwards only to Tesla — the Next.js dev server handles this locally
-(`next.config.ts`), a Cloudflare Pages Function handles it on exportdash.cam
-(`functions/tesla-decrypt/[[path]].ts`), and nginx handles it in the Docker image
-(`nginx.conf`). Point it elsewhere with `NEXT_PUBLIC_TESLA_KEY_URL` if needed.
+proxy that forwards only to Tesla — the Next.js server handles it via a rewrite
+in `next.config.ts`, and a Cloudflare Pages Function handles it on exportdash.cam
+(`functions/tesla-decrypt/[[path]].ts`). Point it elsewhere with
+`NEXT_PUBLIC_TESLA_KEY_URL` if needed.
 The proxy adds no credentials of its own; it only relays your authenticated
 request to Tesla. Note that this means your bearer token transits the proxy host
 on its way to Tesla — it is never logged or stored there, but if you'd rather it
 never left your machine, run the Docker image yourself and use that instance.
+
+## TeslaMate Integration
+
+If you run [TeslaMate](https://github.com/teslamate-org/teslamate), ExportDash can
+match each clip to the trip it came from and show what the camera cannot: motor
+power, battery level, tire pressure, range, odometer, elevation and temperature,
+plus the trip's distance, duration, energy used and start/end place.
+
+It works by asking the Grafana that already fronts your TeslaMate database to run
+a read-only query. ExportDash never talks to Postgres directly, and nothing leaves
+your machine except those queries to your own Grafana.
+
+### Connecting
+
+Open the plug icon in the player toolbar and enter your Grafana address. A
+**service account token** with the Viewer role is enough — the app only ever runs
+`SELECT`s. Leave the token empty if your Grafana allows anonymous access.
+
+There are two ways to reach Grafana, and which one you should use depends on
+where you run ExportDash:
+
+**Same-origin proxy (recommended for a self-hosted server).** Set
+`GRAFANA_UPSTREAM` to your Grafana's address and use `/grafana-proxy` in the
+settings:
+
+```yaml
+environment:
+  GRAFANA_UPSTREAM: "http://grafana:3000"
+```
+
+The browser then makes a same-origin request, so **no CORS configuration is
+needed** and Grafana does not have to be reachable from outside your network. The
+app server relays only the two read-only endpoints the integration uses
+(`api/ds/query` and `api/datasources`), and the upstream is fixed at deploy time
+rather than taken from the request, so this is not an open relay. It needs a
+server deployment — the Docker image, or any host running `next start`.
+
+**Direct.** Enter your Grafana's public URL in the settings. This works on any
+deployment, including exportdash.cam — but Grafana OSS emits **no CORS headers**,
+so you must add them at whatever reverse proxy fronts Grafana:
+
+```nginx
+# In the nginx/caddy/envoy in front of YOUR Grafana.
+add_header Access-Control-Allow-Origin  "https://exportdash.cam" always;
+add_header Access-Control-Allow-Headers "Authorization, Content-Type" always;
+add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
+
+if ($request_method = OPTIONS) {
+    return 204;
+}
+```
+
+Adjust `Access-Control-Allow-Origin` to wherever your ExportDash is served from.
+Without it the browser blocks the request, and ExportDash says so explicitly
+rather than reporting a generic failure.
+
+### What it shows
+
+Every metric is opt-in. The sliders icon in the toolbar picks which fields appear
+in the trip summary, which appear live during playback, and which are burned into
+the exported video — plus where the panel sits and which units to use.
+
+The trip summary is constant for the whole trip; the live values follow the
+playback position. TeslaMate records tire pressures and temperatures only every
+15–40 seconds, so those carry the last known value forward rather than being
+interpolated — ExportDash will not invent a number the car never reported. A value
+that was never recorded reads as **—**, never as 0.
+
+Clips are matched by timestamp, treating a clip's filename time as local time in
+your browser. If you recorded elsewhere, set the recording timezone offset in the
+settings. A drive that is still in progress matches too, and is labelled as such.
+
+### Not supported
+
+- TeslaMate instances backed by InfluxDB (modern TeslaMate is Postgres-only).
+- Writing anything back to TeslaMate or Grafana.
+
+### Verifying a connection
+
+`scripts/verify-teslamate.mjs` runs the same queries against your instance and
+reports what it found:
+
+```bash
+GRAFANA_URL=https://grafana.example.com \
+GRAFANA_TOKEN=glsa_… \
+node scripts/verify-teslamate.mjs
+```
 
 ## Tech Stack
 

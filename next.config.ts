@@ -31,6 +31,14 @@ const nextConfig: NextConfig = {
         source: "/tesla-decrypt/:path*",
         destination: "https://dashcam.tesla.com/:path*",
       },
+      // The TeslaMate integration calls /grafana-proxy/...; relay it to the
+      // route handler, which forwards only the two read-only endpoints it
+      // needs. Keeping this as a rewrite means the client's configured base
+      // URL is the same in development and in production.
+      {
+        source: "/grafana-proxy/:path*",
+        destination: "/api/grafana-proxy/:path*",
+      },
     ];
   },
 };

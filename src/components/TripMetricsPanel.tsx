@@ -1,0 +1,129 @@
+'use client';
+
+import {
+  DASH,
+  fieldByKey,
+  isProvisionalTripField,
+  liveFieldValue,
+  tripFieldValue,
+  unitsFrom,
+  type FieldDef,
+} from '@/lib/teslamate/fields';
+import type {
+  PanelCorner,
+  PositionSample,
+  TeslaMateConfig,
+  TripSummary,
+} from '@/lib/teslamate/types';
+
+interface TripMetricsPanelProps {
+  /** The trip the clip belongs to, or null when none does. */
+  trip: TripSummary | null;
+  /** The live values at the current playback position. */
+  sample: PositionSample | null;
+  config: TeslaMateConfig;
+  speedUnit: 'mph' | 'kmh';
+}
+
+const CORNER_CLASS: Record<PanelCorner, string> = {
+  'top-left': 'absolute top-3 left-3',
+  'top-right': 'absolute top-3 right-3',
+  'bottom-left': 'absolute bottom-3 left-3',
+  'bottom-right': 'absolute bottom-3 right-3',
+};
+
+interface Row {
+  label: string;
+  text: string;
+}
+
+function rowsFor(
+  keys: string[],
+  value: (key: string, field: FieldDef) => unknown,
+  units: ReturnType<typeof unitsFrom>,
+  trip?: TripSummary,
+  hide?: (key: string) => boolean,
+): Row[] {
+  return keys
+    .map((key) => fieldByKey(key))
+    .filter((field): field is FieldDef => Boolean(field))
+    .map((field) => ({
+      label: field.label,
+      text: hide?.(field.key)
+        ? DASH
+        : field.format(value(field.key, field), units, trip),
+    }));
+}
+
+/**
+ * The TeslaMate trip metrics, shown over the video during playback.
+ *
+ * Two blocks: the trip summary, which is constant for the whole trip, and the
+ * live values, which follow the playback position. The user chooses which
+ * fields appear in each.
+ */
+export function TripMetricsPanel({
+  trip,
+  sample,
+  config,
+  speedUnit,
+}: TripMetricsPanelProps) {
+  const units = unitsFrom(speedUnit, config);
+  const corner = CORNER_CLASS[config.panelCorner] ?? CORNER_CLASS['top-right'];
+
+  if (!trip) {
+    return (
+      <div className={`${corner} pointer-events-none`}>
+        <div className="px-2 py-1 rounded-md bg-black/50 backdrop-blur-sm text-white/80 text-xs">
+          No TeslaMate trip covers this clip
+        </div>
+      </div>
+    );
+  }
+
+  const isProvisional = trip.endMs === null;
+
+  const tripRows = rowsFor(
+    config.tripFields,
+    (key) => tripFieldValue(key, trip),
+    units,
+    trip,
+    (key) => isProvisional && isProvisionalTripField(key),
+  );
+  const liveRows = rowsFor(
+    config.liveFields,
+    (key) => liveFieldValue(key, sample, config.rangeType),
+    units,
+  );
+
+  return (
+    <div className={`${corner} pointer-events-none flex flex-col gap-1 items-start`}>
+      {(tripRows.length > 0 || isProvisional) && (
+        <div className="px-2 py-1 rounded-md bg-black/50 backdrop-blur-sm text-white/90 text-xs flex flex-col gap-0.5">
+          {isProvisional && (
+            <span className="text-[10px] uppercase tracking-wide text-amber-300/90">
+              In progress
+            </span>
+          )}
+          {tripRows.map((row) => (
+            <div key={row.label} className="flex items-baseline gap-2">
+              <span className="text-white/50">{row.label}</span>
+              <span className="font-medium">{row.text}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {liveRows.length > 0 && (
+        <div className="px-2 py-1 rounded-md bg-black/50 backdrop-blur-sm text-white/90 text-xs flex flex-col gap-0.5">
+          {liveRows.map((row) => (
+            <div key={row.label} className="flex items-baseline gap-2">
+              <span className="text-white/50">{row.label}</span>
+              <span className="font-medium">{row.text}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

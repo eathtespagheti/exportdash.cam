@@ -5,9 +5,17 @@ import { IconDownload, IconPlayerStop, IconLoader2, IconCheck } from '@tabler/ic
 import { SeiData, SeiWithFrameIndex } from '@/lib/dashcam-mp4';
 import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
 import { VideoSequence, TrimPoints, CameraSegment, formatDuration, LayoutCameraConfig, DEFAULT_LAYOUT_CONFIG, FormatType, getFormatPreset, PortraitLayoutType, PortraitCameraConfig, getPortraitLayout, DEFAULT_PORTRAIT_CAMERA_CONFIG, AlignPosition, PortraitAlignConfig, DEFAULT_PORTRAIT_ALIGN_CONFIG } from '@/types/video';
+import { fieldByKey, isProvisionalTripField, liveFieldValue, tripFieldValue, unitsFrom } from '@/lib/teslamate/fields';
+import type { PositionSample, TeslaMateConfig, TripSummary } from '@/lib/teslamate/types';
 import { Tooltip } from './Tooltip';
 
 type LayoutType = 'single' | 'pip' | 'triple' | 'quad' | 'all';
+
+/** Where the trip metrics for a given clip come from. */
+export interface TripMetricsSource {
+  tripForMoment(momentIndex: number): TripSummary | null;
+  sampleForMoment(momentIndex: number, localTimeSec: number): PositionSample | null;
+}
 
 interface VideoExporterProps {
   sequence: VideoSequence;
@@ -21,6 +29,9 @@ interface VideoExporterProps {
   showTelemetry?: boolean;
   showDateTime?: boolean;
   showMap?: boolean;
+  showTripMetrics?: boolean;
+  tripMetrics?: TripMetricsSource | null;
+  tripMetricsConfig?: TeslaMateConfig | null;
   layout?: LayoutType;
   layoutConfig?: LayoutCameraConfig;
   format?: FormatType;
@@ -100,6 +111,119 @@ async function loadMapTile(x: number, y: number, zoom: number): Promise<HTMLImag
   });
 }
 
+/**
+ * Draws the TeslaMate trip metrics onto the exported frame.
+ *
+ * The trip summary is constant for the whole trip; the live values follow the
+ * playback position. Both are the user's choice — nothing is drawn that the
+ * user did not ask for, and a value the car never measured reads as an em
+ * dash rather than a zero.
+ */
+export function drawTripMetrics(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  trip: TripSummary | null,
+  sample: PositionSample | null,
+  config: TeslaMateConfig,
+  speedUnit: 'mph' | 'kmh',
+): void {
+  const units = unitsFrom(speedUnit, config);
+  const lines: Array<{ label: string; text: string }> = [];
+
+  if (trip) {
+    const provisional = trip.endMs === null;
+    for (const key of config.tripFields) {
+      const field = fieldByKey(key);
+      if (!field) continue;
+      lines.push({
+        label: field.label,
+        text:
+          provisional && isProvisionalTripField(key)
+            ? '—'
+            : field.format(tripFieldValue(key, trip), units, trip),
+      });
+    }
+    if (provisional) {
+      lines.push({ label: '', text: 'In progress' });
+    }
+  } else {
+    lines.push({ label: '', text: 'No TeslaMate trip covers this clip' });
+  }
+
+  for (const key of config.exportLiveFields) {
+    const field = fieldByKey(key);
+    if (!field) continue;
+    lines.push({
+      label: field.label,
+      text: field.format(liveFieldValue(key, sample, config.rangeType), units),
+    });
+  }
+
+  if (lines.length === 0) return;
+
+  const isPortrait = height > width;
+  const scale = isPortrait
+    ? Math.min(width / 720, height / 1280)
+    : Math.min(width / 1280, height / 720);
+  const padding = 8 * scale;
+  const lineHeight = 15 * scale;
+  const margin = 12 * scale;
+
+  ctx.font = `500 ${12 * scale}px -apple-system, BlinkMacSystemFont, sans-serif`;
+
+  let textWidth = 0;
+  for (const line of lines) {
+    const widthOf = ctx.measureText(line.label ? `${line.label}: ${line.text}` : line.text).width;
+    if (widthOf > textWidth) textWidth = widthOf;
+  }
+
+  const boxWidth = textWidth + padding * 2;
+  const boxHeight = lines.length * lineHeight + padding * 2;
+
+  let x: number;
+  let y: number;
+  switch (config.panelCorner) {
+    case 'top-left':
+      x = margin;
+      y = margin;
+      break;
+    case 'bottom-left':
+      x = margin;
+      y = height - boxHeight - margin;
+      break;
+    case 'bottom-right':
+      x = width - boxWidth - margin;
+      y = height - boxHeight - margin;
+      break;
+    default:
+      x = width - boxWidth - margin;
+      y = margin;
+      break;
+  }
+
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+  ctx.beginPath();
+  ctx.roundRect(x, y, boxWidth, boxHeight, 8 * scale);
+  ctx.fill();
+
+  ctx.fillStyle = '#ffffff';
+  ctx.textBaseline = 'middle';
+
+  lines.forEach((line, index) => {
+    const lineY = y + padding + lineHeight * index + lineHeight / 2;
+    if (!line.label) {
+      ctx.textAlign = 'left';
+      ctx.fillText(line.text, x + padding, lineY);
+      return;
+    }
+    ctx.textAlign = 'left';
+    ctx.fillText(`${line.label}:`, x + padding, lineY);
+    ctx.textAlign = 'right';
+    ctx.fillText(line.text, x + boxWidth - padding, lineY);
+  });
+}
+
 export function VideoExporter({
   sequence,
   selectedAngle,
@@ -112,6 +236,9 @@ export function VideoExporter({
   showTelemetry = true,
   showDateTime = true,
   showMap = true,
+  showTripMetrics = false,
+  tripMetrics = null,
+  tripMetricsConfig = null,
   layout = 'single',
   layoutConfig = DEFAULT_LAYOUT_CONFIG,
   format = 'original',
@@ -1190,6 +1317,17 @@ export function VideoExporter({
           const isAutopilotActive = showTelemetry && [1, 2, 3].includes(autopilotState);
           drawDateTime(ctx, overlayW, overlayH, dynamicDate, dynamicTime, showTelemetry, isAutopilotActive);
         }
+        if (showTripMetrics && tripMetrics && tripMetricsConfig) {
+          drawTripMetrics(
+            ctx,
+            overlayW,
+            overlayH,
+            tripMetrics.tripForMoment(clipIdx),
+            tripMetrics.sampleForMoment(clipIdx, localTime),
+            tripMetricsConfig,
+            speedUnit,
+          );
+        }
         if (showMap && !(isPortraitFormat && pLayoutMeta.hasMap) && !(layout === 'pip' && layoutConfig.pip.corners.includes('map'))) {
           await drawMiniMap(ctx, seiData, overlayW, overlayH, layout === 'pip' ? 'top-right' : 'bottom-right');
         }
@@ -1255,7 +1393,7 @@ export function VideoExporter({
       }
       tempVideo.src = '';
     }
-  }, [sequence, selectedAngle, allSeiMessages, fps, speedUnit, getSeiForTime, getAngleForTime, trimPoints, showTelemetry, showDateTime, showMap, layout, layoutConfig, format, portraitLayout, portraitCameraConfig, portraitAlignConfig]);
+  }, [sequence, selectedAngle, allSeiMessages, fps, speedUnit, getSeiForTime, getAngleForTime, trimPoints, showTelemetry, showDateTime, showMap, showTripMetrics, tripMetrics, tripMetricsConfig, layout, layoutConfig, format, portraitLayout, portraitCameraConfig, portraitAlignConfig]);
 
   const stopExport = useCallback(() => {
     abortRef.current = true;

@@ -2,6 +2,8 @@
 
 import { useRef, useEffect, useState, useCallback, lazy, Suspense, ReactNode, useMemo } from 'react';
 import { useSeiData } from '@/hooks/useSeiData';
+import { useTeslaMate } from '@/hooks/useTeslaMate';
+import { loadTeslaMateConfig } from '@/lib/teslamate/config';
 import { TelemetryCard } from './TelemetryCard';
 import { VideoSequence, ANGLE_LABELS, ANGLE_ORDER, VideoMoment, TrimPoints, CameraSegment, LayoutCameraConfig, loadLayoutConfig, saveLayoutConfig, FormatType, FORMAT_PRESETS, getFormatPreset, PortraitLayoutType, PortraitCameraConfig, getPortraitLayout, loadPortraitLayout, savePortraitLayout, loadPortraitCameraConfig, savePortraitCameraConfig, DEFAULT_PORTRAIT_CAMERA_CONFIG, AlignPosition, PortraitAlignConfig, loadPortraitAlignConfig, savePortraitAlignConfig } from '@/types/video';
 import { findMomentForTime, toAbsoluteTime } from '@/lib/sequence-detector';
@@ -35,6 +37,8 @@ import {
   IconScissors,
   IconWand,
   IconClock,
+  IconAdjustments,
+  IconPlugConnected,
   IconSettings2,
   IconAspectRatio,
   IconBrandTiktok,
@@ -46,6 +50,9 @@ import { VideoExporter } from './VideoExporter';
 import { LayoutConfigPopover } from './LayoutConfigPopover';
 import { PortraitCameraSelector } from './PortraitCameraSelector';
 import { TelemetryTimeline } from './TelemetryTimeline';
+import { TeslaMateSettings } from './TeslaMateSettings';
+import { TripMetricsPanel } from './TripMetricsPanel';
+import { TripMetricsConfig } from './TripMetricsConfig';
 import { Tooltip } from './Tooltip';
 
 // Lazy load MapView to avoid SSR issues with Leaflet
@@ -168,6 +175,10 @@ export function VideoPlayer({
   const [showDateTime, setShowDateTime] = useState<boolean>(
     typeof initConfig.showDateTime === 'boolean' ? initConfig.showDateTime : true
   );
+  const [showTeslaMateSettings, setShowTeslaMateSettings] = useState(false);
+  const [showTripMetricsConfig, setShowTripMetricsConfig] = useState(false);
+  const [teslaMateConfig, setTeslaMateConfig] = useState(() => loadTeslaMateConfig());
+  const teslaMate = useTeslaMate(sequence);
 
   // Persist overlay toggle states to localStorage
   useEffect(() => {
@@ -1133,6 +1144,16 @@ export function VideoPlayer({
               </div>
             )}
 
+            {/* TeslaMate Trip Metrics - configurable corner */}
+            {teslaMateConfig.enabled && teslaMate.status === 'ready' && (
+              <TripMetricsPanel
+                trip={teslaMate.tripForMoment(currentMomentIndex)}
+                sample={teslaMate.sampleForMoment(currentMomentIndex, localTime)}
+                config={teslaMateConfig}
+                speedUnit={speedUnit}
+              />
+            )}
+
             {/* Map Overlay - skip if portrait layout has map slot, or PiP corner has map */}
             {showMap && !(isPortraitFormat && getPortraitLayout(portraitLayout).hasMap) && !(layout === 'pip' && layoutConfig.pip.corners.includes('map')) && (
               <div className={`absolute w-[180px] h-[180px] rounded-lg overflow-hidden shadow-xl opacity-90 hover:opacity-100 transition-opacity pointer-events-auto ${
@@ -1527,6 +1548,35 @@ export function VideoPlayer({
                 <IconClock size={16} />
               </button>
             </Tooltip>
+            <Tooltip content="TeslaMate trip metrics" position="top">
+              <button
+                onClick={() => setShowTeslaMateSettings(true)}
+                className="p-1.5 rounded bg-gray-700 text-gray-400 hover:bg-gray-600 transition-all"
+              >
+                <IconPlugConnected size={16} />
+              </button>
+            </Tooltip>
+            <div className="relative">
+              <Tooltip content="Which trip metrics to show" position="top">
+                <button
+                  onClick={() => setShowTripMetricsConfig(prev => !prev)}
+                  className={`p-1.5 rounded transition-all ${
+                    showTripMetricsConfig
+                      ? 'bg-green-600 text-white'
+                      : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
+                  }`}
+                >
+                  <IconAdjustments size={16} />
+                </button>
+              </Tooltip>
+              {showTripMetricsConfig && (
+                <TripMetricsConfig
+                  onClose={() => setShowTripMetricsConfig(false)}
+                  onChange={setTeslaMateConfig}
+                  occupiedCorners={[layout === 'pip' ? 'top-right' : 'bottom-right']}
+                />
+              )}
+            </div>
 
             {/* Divider */}
             <div className="w-px h-4 bg-gray-600 mx-1" />
@@ -1557,6 +1607,9 @@ export function VideoPlayer({
               showTelemetry={showTelemetry}
               showDateTime={showDateTime}
               showMap={showMap}
+              showTripMetrics={teslaMateConfig.enabled && teslaMate.status === 'ready'}
+              tripMetrics={teslaMate}
+              tripMetricsConfig={teslaMateConfig}
               layout={layout}
               layoutConfig={layoutConfig}
               format={format}
@@ -1694,6 +1747,17 @@ export function VideoPlayer({
           />
         )}
       </div>
+
+      {showTeslaMateSettings && (
+        <TeslaMateSettings
+          onClose={() => setShowTeslaMateSettings(false)}
+          onSaved={() => {
+            setTeslaMateConfig(loadTeslaMateConfig());
+            teslaMate.reload();
+            setShowTeslaMateSettings(false);
+          }}
+        />
+      )}
     </div>
   );
 }

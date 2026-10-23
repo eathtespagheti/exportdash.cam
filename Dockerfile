@@ -33,6 +33,11 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
+# The Grafana to proxy for the TeslaMate integration, read by
+# src/app/api/grafana-proxy. Empty (the default) disables the proxy, so the
+# image behaves as it did before.
+ENV GRAFANA_UPSTREAM=""
+
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 

@@ -11,3 +11,9 @@ services:
       NEXT_PUBLIC_ENABLE_UPLOAD_BOX: false
       NEXT_PUBLIC_ENABLE_LIBRARY_REVIEW: true
       NEXT_PUBLIC_ENABLE_SERVER_LIBRARY_CONFIG: false
+      # Point this at your Grafana to enable the TeslaMate integration with no
+      # CORS configuration: the browser calls this same origin and the app
+      # server relays the two read-only endpoints the integration uses.
+      #   GRAFANA_UPSTREAM: http://grafana:3000
+      # Left empty, the proxy is disabled.
+      GRAFANA_UPSTREAM: ""

@@ -280,7 +280,16 @@ true.
 ```ts
 export class GrafanaError extends Error { readonly kind: GrafanaErrorKind; }
 
-export interface GrafanaConnection { baseUrl: string; token: string | null }
+export interface GrafanaConnection {
+  baseUrl: string;
+  token: string | null;
+  /**
+   * Grafana requires a datasource on every query and rejects the whole
+   * request without one, so the client attaches it rather than leaving it to
+   * the query builders. `null` until one has been discovered.
+   */
+  datasource: { uid: string; type: string } | null;
+}
 export interface DatasourceInfo { uid: string; name: string; type: string }
 /** Column-oriented, already parsed. rowCount is 0 for an empty frame. */
 export interface Frame { fields: string[]; columns: Record<string, unknown[]>; rowCount: number }
@@ -296,6 +305,13 @@ export async function listDatasources(
 
 `buildUrl` is exported separately because it is the pure part and the part most
 likely to be wrong.
+
+**The client owns Grafana's wire format.** Verified against the live instance:
+each query in the request body must carry `datasource: { uid, type }`, and
+must also declare `rawQuery: true` and `format: "table"` — without them
+Grafana assumes a time-series query and fails every statement with
+"db has no time column". The client attaches all of it, so the query builders
+stay pure SQL.
 
 **Steps**
 
@@ -452,12 +468,24 @@ it("is correct across a DST transition", () => {
   straddling two selects the larger overlap; a clip overlapping none returns
   `null`; a clip overlapping a trip with `endMs: null` (open) selects it
   (**Constraint 4**); a zero-length clip at a trip boundary resolves
-  deterministically. And `spansMultipleTrips` is true only when two overlaps are
-  non-zero.
+  deterministically.
+
+  **A closed trip must beat an open one.** Every drive still in progress has
+  `end_date = NULL`, which makes it overlap *every* later window — the live
+  instance has 19 such drives, all of which match a clip that actually belongs
+  to a different, closed trip. The rule is therefore: among candidates, prefer
+  a closed trip; only when no closed trip overlaps does an open one count,
+  and then the most recently started wins (the drive being recorded right now).
+  Assert this with a fixture holding one closed and two open candidates that
+  all overlap the clip.
+
+  And `spansMultipleTrips` is true only when two overlaps are non-zero.
 - [ ] **2. Run it and confirm it fails.**
 - [ ] **3. Implement** `clipWallClockMs`, `selectTripForClip` and
   `spansMultipleTrips` in `src/lib/teslamate/match.ts`. Overlap is
   `min(clipEnd, tripEnd ?? Infinity) − max(clipStart, tripStart)`, clamped at 0.
+  Selection prefers a closed trip, then the greater overlap, then the later
+  `startMs`.
 - [ ] **4. Run it and confirm it passes.**
 - [ ] **5. Commit.**
 
@@ -746,6 +774,11 @@ New props: `showTripMetrics`, `tripForMoment`, `sampleForMoment`,
 ---
 
 ## Task 12: The nginx proxy, Docker, and the README
+
+> **Executed differently.** By the time this task ran, `main` had moved to a
+> standalone Next.js server and dropped nginx, so the proxy became a route
+> handler (`src/app/api/grafana-proxy/[...path]/route.ts`) behind a
+> `next.config.ts` rewrite instead of an nginx `location`. See spec §7.
 
 **Files:** create `templates/default.conf.template`; delete `nginx.conf`;
 modify `Dockerfile`, `docker-compose.yml`, `README.md`
