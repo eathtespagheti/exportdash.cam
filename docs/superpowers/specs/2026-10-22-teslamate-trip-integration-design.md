@@ -638,78 +638,50 @@ them, since it is only visible on the user's own screen.
 
 ---
 
-## 7. The Docker proxy
+## 7. The same-origin proxy
 
-`nginx.conf` gains one location block. The configuration below was **verified
-end-to-end against `nginx:alpine`** (config parsing, path rewriting, method
-handling, header relay and the unset-upstream case); the three traps it
-avoids are called out.
+> **Revised after rebasing onto `main`.** When this design was written the app
+> was a static export served by nginx, so this section described an nginx
+> `location` that `proxy_pass`ed to Grafana. `main` has since moved to a
+> **standalone Next.js server** (`output: "standalone"`, `node startup.js`, port
+> 3000) to support the library feature's API routes. nginx is no longer in the
+> image, so the proxy is now a **route handler** instead. The behaviour and the
+> guarantees are unchanged; only the mechanism moved. The nginx version was
+> verified against `nginx:alpine` at the time and is recorded in the ledger.
 
-```nginx
-# Proxy Grafana for the TeslaMate integration. Same-origin, so the browser
-# makes no cross-origin request and Grafana needs no CORS configuration.
-#
-# The upstream is fixed at deploy time via GRAFANA_UPSTREAM (set in
-# docker-compose.yml) — never taken from the request — so this is not an
-# open relay.
-location /grafana-proxy/ {
-    # TRAP 1: with an unset upstream, refuse rather than proxying nowhere.
-    if ($grafana_upstream = "") {
-        return 404;
-    }
+The proxy is `src/app/api/grafana-proxy/[...path]/route.ts`, reached through a
+rewrite so the client's configured base URL is identical in development and
+production:
 
-    # TRAP 2: a variable in proxy_pass discards the request URI unless the
-    # path is rewritten explicitly. Without this, /grafana-proxy/api/ds/query
-    # would arrive upstream as "/".
-    rewrite ^/grafana-proxy/(.*)$ /$1 break;
-
-    proxy_pass $grafana_upstream;
-    proxy_http_version 1.1;
-
-    # TRAP 3: $proxy_host is the upstream host:port. A hand-written
-    # variable like $grafana_host does not exist and fails `nginx -t` with
-    # [emerg] unknown "grafana_host" variable, so the container never starts.
-    proxy_set_header Host $proxy_host;
-    proxy_set_header Authorization $http_authorization;
-    proxy_buffering off;
-}
+```ts
+// next.config.ts
+{ source: "/grafana-proxy/:path*", destination: "/api/grafana-proxy/:path*" }
 ```
 
-Supporting changes to the image:
+The handler:
 
-- The config moves to `/etc/nginx/templates/default.conf.template`, because
-  the nginx image's entrypoint runs `envsubst` over `/etc/nginx/templates/*.template`
-  and writes the result to `/etc/nginx/conf.d/`. `envsubst` only substitutes
-  the variables that are actually defined in the environment, so nginx's own
-  `$request_method`, `$http_authorization` and `$proxy_host` survive
-  untouched — verified.
-- `ENV GRAFANA_UPSTREAM=""` is set in the Dockerfile so the variable is always
-  defined and the `if` guard is always meaningful. With it unset entirely,
-  `envsubst` leaves the literal `${GRAFANA_UPSTREAM}` in the file and the
-  guard never matches.
-- A `resolver` directive is required, because a variable in `proxy_pass`
-  defers DNS resolution to request time. In Docker the embedded DNS server
-  is `127.0.0.11`; the directive is emitted only when the upstream is a
-  hostname.
+- reads `GRAFANA_UPSTREAM` **once at module load** and is disabled (`404`) when
+  it is empty — the default, so the image behaves as it did before;
+- forwards only `api/ds/query` and `api/datasources`, both read-only, and returns
+  `404` for anything else under the prefix (including Grafana's admin surface);
+- accepts only `GET` and `POST`;
+- relays the caller's `Authorization` header verbatim and never logs it;
+- passes Grafana's status through, and reports `502` when Grafana cannot be
+  reached;
+- takes the upstream from the environment, never from the request, so it is not
+  an open relay.
 
-**Method handling.** Both `GET` and `POST` are forwarded: `GET` is needed for
-datasource discovery (`GET /api/datasources`) and `POST` for the query
-endpoint. Grafana's `/api/ds/query` is **POST-only** — a `GET` returns 404,
-verified against the live instance.
+**Verified end to end** against a built standalone server and the live Grafana:
+`/grafana-proxy/api/datasources` and `/api/grafana-proxy/api/datasources` both
+return the datasource list, and `/grafana-proxy/api/org` returns `404`.
 
 **Security notes:**
-- The upstream is **not** user-controllable at request time → no open relay.
-- The `Authorization` header is relayed verbatim and never logged, matching
-  the existing Tesla proxy's handling.
-- The block exposes the full Grafana API surface to anyone who can reach the
-  app. That is the same trust boundary as the app itself: whoever can use the
-  self-hosted ExportDash can already use the app. Users who need to restrict
-  this should front the app with authentication (the reference deployment
-  already does, via oauth2-proxy).
-- The `/grafana-proxy/` prefix is stripped before the request goes upstream,
-  so Grafana sees exactly the paths it would see directly.
 
----
+- The upstream is not user-controllable at request time → no open relay.
+- The `Authorization` header is relayed verbatim and never logged.
+- Only two read-only endpoints are reachable, so the proxy does not widen the
+  app's trust boundary to Grafana's whole API.
+- A token still only ever travels to the Grafana the operator configured.
 
 ## 8. Failure modes and how the UI reports them
 

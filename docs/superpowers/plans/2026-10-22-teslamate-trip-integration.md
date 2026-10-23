@@ -775,6 +775,11 @@ New props: `showTripMetrics`, `tripForMoment`, `sampleForMoment`,
 
 ## Task 12: The nginx proxy, Docker, and the README
 
+> **Executed differently.** By the time this task ran, `main` had moved to a
+> standalone Next.js server and dropped nginx, so the proxy became a route
+> handler (`src/app/api/grafana-proxy/[...path]/route.ts`) behind a
+> `next.config.ts` rewrite instead of an nginx `location`. See spec §7.
+
 **Files:** create `templates/default.conf.template`; delete `nginx.conf`;
 modify `Dockerfile`, `docker-compose.yml`, `README.md`
 
