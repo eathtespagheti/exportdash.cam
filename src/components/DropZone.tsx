@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useState } from 'react';
+import { useConfig } from '@/components/ConfigProvider';
 
 interface DropZoneProps {
   onFilesAdded: (files: File[]) => void;
@@ -89,6 +90,10 @@ export function DropZone({ onFilesAdded, hasVideos }: DropZoneProps) {
     [onFilesAdded]
   );
 
+  const { enableUploadBox } = useConfig();
+
+  if (!enableUploadBox) return null;
+
   if (hasVideos) {
     return (
       <div
@@ -99,7 +104,7 @@ export function DropZone({ onFilesAdded, hasVideos }: DropZoneProps) {
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
-        <label className="cursor-pointer text-gray-400 hover:text-gray-300">
+        <label className="cursor-pointer text-gray-400 hover:text-gray-300 block mb-2">
           <span className="text-sm">Drop more videos or click to add</span>
           <input
             type="file"
@@ -172,7 +177,9 @@ export function DropZone({ onFilesAdded, hasVideos }: DropZoneProps) {
           </svg>
         </div>
         <div className="text-center">
-          <p className="text-xl font-medium text-gray-200">Drop your TeslaCam clips here</p>
+          <p className="text-xl font-medium text-gray-200">
+            Drop your TeslaCam clips here
+          </p>
           <p className="text-sm text-gray-500 mt-2 max-w-md">
             From your Tesla USB drive, navigate to{' '}
             <span className="text-gray-400 font-mono text-xs">TeslaCam</span> →{' '}
@@ -182,7 +189,8 @@ export function DropZone({ onFilesAdded, hasVideos }: DropZoneProps) {
             {' '}→ select a dated folder and drop all clips
           </p>
         </div>
-        <label className="mt-4 px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg cursor-pointer transition-colors">
+
+        <label className="mt-4 px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg cursor-pointer transition-colors inline-block w-48 text-center mb-4">
           <span>Browse Files</span>
           <input
             type="file"

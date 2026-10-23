@@ -5,6 +5,7 @@ import { useSeiData } from '@/hooks/useSeiData';
 import { TelemetryCard } from './TelemetryCard';
 import { VideoSequence, ANGLE_LABELS, ANGLE_ORDER, VideoMoment, TrimPoints, CameraSegment, LayoutCameraConfig, loadLayoutConfig, saveLayoutConfig, FormatType, FORMAT_PRESETS, getFormatPreset, PortraitLayoutType, PortraitCameraConfig, getPortraitLayout, loadPortraitLayout, savePortraitLayout, loadPortraitCameraConfig, savePortraitCameraConfig, DEFAULT_PORTRAIT_CAMERA_CONFIG, AlignPosition, PortraitAlignConfig, loadPortraitAlignConfig, savePortraitAlignConfig } from '@/types/video';
 import { findMomentForTime, toAbsoluteTime } from '@/lib/sequence-detector';
+import { getCachedVideoUrl } from '@/lib/video-cache';
 import {
   IconArrowUp,
   IconArrowDown,
@@ -76,7 +77,7 @@ const FORMAT_ICONS: Record<string, ReactNode> = {
   'youtube-shorts': <IconBrandYoutube size={14} />,
 };
 
-type LayoutType = 'single' | 'pip' | 'triple' | 'all';
+type LayoutType = 'single' | 'pip' | 'triple' | 'quad' | 'all';
 
 interface LayoutConfig {
   id: LayoutType;
@@ -103,6 +104,12 @@ const LAYOUTS: LayoutConfig[] = [
     label: 'Triple',
     icon: <IconColumns3 size={14} />,
     description: 'Front + sides',
+  },
+  {
+    id: 'quad',
+    label: 'Quad',
+    icon: <IconLayoutGrid size={14} />,
+    description: 'Tesla original',
   },
   {
     id: 'all',
@@ -336,21 +343,45 @@ export function VideoPlayer({
   // render - and they are not cascading renders, because the effect only
   // re-runs when the moment actually changes.
   useEffect(() => {
-    if (!currentMoment) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- see the note above: the object URLs are an external resource
-      setVideoUrls({});
-      return;
-    }
+    let isMounted = true;
+    const urlsToRevoke: string[] = [];
 
-    const urls: Record<string, string> = {};
-    for (const video of currentMoment.videos) {
-      urls[video.angle] = URL.createObjectURL(video.file);
-    }
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- see the note above: the object URLs are an external resource
-    setVideoUrls(urls);
+    const loadUrls = async () => {
+      if (!currentMoment) {
+        setVideoUrls({});
+        return;
+      }
+
+      const urls: Record<string, string> = {};
+      const libPrefs = JSON.parse(localStorage.getItem('exportdash-library-prefs') || '{}');
+      const limitBytes = (libPrefs.cacheLimitGB ?? 10) * 1024 * 1024 * 1024;
+
+      for (const video of currentMoment.videos) {
+        if (video.url) {
+          // Library video - try cache
+          const cachedUrl = await getCachedVideoUrl(video.url, limitBytes);
+          urls[video.angle] = cachedUrl;
+          if (cachedUrl.startsWith('blob:')) {
+            urlsToRevoke.push(cachedUrl);
+          }
+        } else {
+          // Local file
+          const blobUrl = URL.createObjectURL(video.file!);
+          urls[video.angle] = blobUrl;
+          urlsToRevoke.push(blobUrl);
+        }
+      }
+
+      if (isMounted) {
+        setVideoUrls(urls);
+      }
+    };
+
+    loadUrls();
 
     return () => {
-      Object.values(urls).forEach(url => URL.revokeObjectURL(url));
+      isMounted = false;
+      urlsToRevoke.forEach(url => URL.revokeObjectURL(url));
     };
   }, [currentMoment?.id]);
 
@@ -368,13 +399,16 @@ export function VideoPlayer({
     const nextMoment = sequence.moments[currentMomentIndex + 1];
     const urls: Record<string, string> = {};
     for (const video of nextMoment.videos) {
-      urls[video.angle] = URL.createObjectURL(video.file);
+      urls[video.angle] = video.url || URL.createObjectURL(video.file!);
     }
     // eslint-disable-next-line react-hooks/set-state-in-effect -- see the note above: the object URLs are an external resource
     setPreloadedUrls(urls);
 
     return () => {
-      Object.values(urls).forEach(url => URL.revokeObjectURL(url));
+      Object.entries(urls).forEach(([angle, url]) => {
+        const v = nextMoment.videos.find(v => v.angle === angle);
+        if (v?.file) URL.revokeObjectURL(url);
+      });
     };
   }, [sequence?.id, currentMomentIndex]);
 
@@ -690,7 +724,7 @@ export function VideoPlayer({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [togglePlay, absoluteTime, sequence, seekToAbsoluteTime, handleLayoutChange, toggleFullscreen, skipToPreviousClip, skipToNextClip, toggleTrimMode]);
 
-  if (!sequence || !currentMoment || Object.keys(videoUrls).length === 0) {
+  if (!sequence || !currentMoment) {
     return (
       <div className="bg-gray-900 rounded-xl aspect-video flex items-center justify-center">
         <div className="text-center text-gray-500">
@@ -953,6 +987,42 @@ export function VideoPlayer({
                 </div>
               );
             })}
+          </div>
+          {renderPlayOverlay()}
+        </div>
+      );
+    }
+
+    // Quad cameras - 2 rows of 2 (Tesla style)
+    if (layout === 'quad') {
+      const rows = [
+        layoutConfig.quad.topRow,
+        layoutConfig.quad.bottomRow,
+      ];
+
+      return (
+        <div className="relative w-full bg-black flex items-center justify-center overflow-hidden aspect-video max-h-full">
+          <div className="absolute inset-0 flex flex-col gap-1 p-1">
+            {rows.map((row, rowIdx) => (
+              <div key={rowIdx} className="flex-1 flex gap-1 min-h-0">
+                {row.map((angle, colIdx) => {
+                  const isMain = angle === selectedAngle;
+                  const isAvailable = availableAngles.includes(angle);
+
+                  return (
+                    <div 
+                      key={`${rowIdx}-${colIdx}-${angle}`} 
+                      className={`flex-1 relative bg-gray-900 rounded overflow-hidden min-w-0 ${
+                        isMain ? 'ring-2 ring-inset ring-blue-500' : ''
+                      } ${isAvailable ? 'cursor-pointer' : 'opacity-40'}`}
+                      onClick={() => isAvailable && handleAngleChange(angle)}
+                    >
+                      {renderVideo(angle, isMain, 'w-full h-full')}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
           </div>
           {renderPlayOverlay()}
         </div>
