@@ -1,5 +1,16 @@
 export type LibrarySourceType = 'server' | 'client';
 
+// The File System Access permission helpers are not part of the standard
+// lib.dom typings, but they are implemented by Chromium browsers.
+export type PermissionDirectoryHandle = FileSystemDirectoryHandle & {
+  queryPermission(descriptor?: { mode?: 'read' | 'readwrite' }): Promise<PermissionState>;
+  requestPermission(descriptor?: { mode?: 'read' | 'readwrite' }): Promise<PermissionState>;
+};
+
+export type DirectoryPickerWindow = Window & {
+  showDirectoryPicker(): Promise<FileSystemDirectoryHandle>;
+};
+
 export interface LibraryConfig {
   id: string;
   name: string;
@@ -7,6 +18,7 @@ export interface LibraryConfig {
   path?: string; // Used for 'server' type
   color?: string;
   computedColor?: string;
+  isUserAdded?: boolean;
 }
 
 export interface ServerLibrariesConfig {
@@ -32,5 +44,5 @@ export interface LibraryEvent {
   city: string;
   camera: string;
   sourceType?: LibrarySourceType;
-  clientHandle?: any; // FileSystemDirectoryHandle
+  clientHandle?: FileSystemDirectoryHandle;
 }

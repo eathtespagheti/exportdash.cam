@@ -75,7 +75,7 @@ export async function GET(request: Request) {
               url: `/api/video?path=${encodeURIComponent(filePath)}`
             };
           }
-        } catch (e) {
+        } catch {
           // Ignore files that can't be read
         }
         return null;

@@ -7,7 +7,8 @@ import { DropZone } from '@/components/DropZone';
 import { VideoPlayer } from '@/components/VideoPlayer';
 import { LoadingScreen } from '@/components/LoadingScreen';
 import { DecryptDialog } from '@/components/DecryptDialog';
-import { VideoSequence, ProcessingProgress } from '@/types/video';
+import { VideoSequence, ProcessingProgress, type VirtualFile } from '@/types/video';
+import type { PermissionDirectoryHandle } from '@/types/library';
 import { processFilesToMoments, detectSequences } from '@/lib/sequence-detector';
 import { useConfig } from '@/components/ConfigProvider';
 import {
@@ -31,9 +32,10 @@ function HomeContent() {
     total: 0,
   });
   // Encrypted clips awaiting a token before they can be decrypted.
-  const [pendingDecrypt, setPendingDecrypt] = useState<{ encrypted: File[]; plain: File[] } | null>(
-    null
-  );
+  const [pendingDecrypt, setPendingDecrypt] = useState<{
+    encrypted: File[];
+    plain: (File | VirtualFile)[];
+  } | null>(null);
 
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -41,7 +43,7 @@ function HomeContent() {
   const { enableLibraryReview } = useConfig();
 
   // Run the normal processing pipeline on a set of plain (decrypted) MP4 files.
-  const runPipeline = useCallback(async (files: File[]) => {
+  const runPipeline = useCallback(async (files: (File | VirtualFile)[]) => {
     if (files.length === 0) return;
 
     setIsProcessing(true);
@@ -74,14 +76,14 @@ function HomeContent() {
 
 
   const handleFilesAdded = useCallback(
-    async (newFiles: File[] | any[]) => {
+    async (newFiles: (File | VirtualFile)[]) => {
       if (newFiles.length === 0) return;
 
       // Split off any Tesla-encrypted clips; they need a key before playback.
       // Virtual library files are plain objects, not File instances, so they
       // can never be encrypted Tesla clips.
       const encrypted: File[] = [];
-      const plain: File[] = [];
+      const plain: (File | VirtualFile)[] = [];
       for (const file of newFiles) {
         if (
           file instanceof File &&
@@ -100,7 +102,7 @@ function HomeContent() {
         return;
       }
 
-      await runPipeline(newFiles as File[]);
+      await runPipeline(newFiles);
     },
     [runPipeline]
   );
@@ -157,6 +159,9 @@ function HomeContent() {
   }, [router]);
 
   useEffect(() => {
+    // This effect bootstraps playback from URL parameters, so the loading state
+    // changes below are the intended bridge to the async work it starts.
+    /* eslint-disable react-hooks/set-state-in-effect */
     const folder = searchParams.get('folder');
     const libraryPath = searchParams.get('libraryPath');
     const clientLibraryId = searchParams.get('clientLibraryId');
@@ -172,16 +177,16 @@ function HomeContent() {
 
       import('idb-keyval').then(async ({ get }) => {
         try {
-          const rootHandle = await get(clientLibraryId) as any;
+          const rootHandle = (await get(clientLibraryId)) as PermissionDirectoryHandle | undefined;
           if (!rootHandle) throw new Error('Local directory access expired. Please re-add it in the Library.');
-          
-          let currentHandle = rootHandle;
+
+          let currentHandle: FileSystemDirectoryHandle = rootHandle;
           const parts = folder.split('/').filter(Boolean);
           for (const part of parts) {
             currentHandle = await currentHandle.getDirectoryHandle(part);
           }
 
-          const files = [];
+          const files: FileSystemFileHandle[] = [];
           for await (const entry of currentHandle.values()) {
             if (entry.kind === 'file' && (entry.name.toLowerCase().endsWith('.mp4') || entry.name.toLowerCase() === 'event.json')) {
               files.push(entry);
@@ -190,7 +195,7 @@ function HomeContent() {
 
           if (files.length === 0) throw new Error('No supported files found');
 
-          const virtualFiles = await Promise.all(files.map(async (fileHandle: any) => {
+          const virtualFiles = await Promise.all(files.map(async (fileHandle: FileSystemFileHandle) => {
             const file = await fileHandle.getFile();
             return {
               name: file.name,
@@ -201,13 +206,13 @@ function HomeContent() {
           }));
 
           handleFilesAdded(virtualFiles);
-        } catch (err: any) {
+        } catch (err) {
           console.error(err);
           setProcessingProgress({
             stage: 'error',
             current: 0,
             total: 0,
-            message: err.message || 'Failed to load local folder',
+            message: err instanceof Error ? err.message : 'Failed to load local folder',
           });
           setIsProcessing(false);
         }
@@ -236,7 +241,7 @@ function HomeContent() {
           if (data.error) throw new Error(data.error);
           if (!data.files || data.files.length === 0) throw new Error('No supported files found');
           
-          const virtualFiles = data.files.map((file: any) => ({
+          const virtualFiles = data.files.map((file: { name: string; size: number; url: string }) => ({
             name: file.name,
             size: file.size,
             url: file.url,
@@ -259,6 +264,7 @@ function HomeContent() {
           setIsProcessing(false);
         });
     }
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, [searchParams, handleFilesAdded]);
 
   return (

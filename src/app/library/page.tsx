@@ -5,12 +5,23 @@ import Link from 'next/link';
 import { useConfig } from '@/components/ConfigProvider';
 import { get, set } from 'idb-keyval';
 import { scanClientDirectory } from '@/lib/client-scanner';
-import { LibraryConfig, LibraryEvent, LibrarySourceType } from '@/types/library';
+import type {
+  DirectoryPickerWindow,
+  LibraryConfig,
+  LibraryEvent,
+  PermissionDirectoryHandle,
+} from '@/types/library';
 
 const COMMON_COLORS = [
   '#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4',
   '#3b82f6', '#6366f1', '#a855f7', '#ec4899', '#f43f5e'
 ];
+
+interface LibraryPrefs {
+  enableHoverScrobbling?: boolean;
+  cacheLimitGB?: number;
+  libraryColors?: Record<string, string>;
+}
 
 const CAMERA_MAP: Record<string, string> = {
   '0': 'Front',
@@ -130,6 +141,7 @@ export default function LibraryClipsPage() {
       const libPrefs = JSON.parse(localStorage.getItem('exportdash-library-prefs') || '{}');
       const overlayPrefs = JSON.parse(localStorage.getItem('exportdash-overlay-config') || '{}');
       
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- preferences come from localStorage, an external store
       setPrefs({
         enableHoverScrobbling: libPrefs.enableHoverScrobbling ?? false,
         cacheLimitGB: libPrefs.cacheLimitGB ?? 10,
@@ -141,7 +153,7 @@ export default function LibraryClipsPage() {
     } catch {}
   }, []);
 
-  const updatePref = (key: string, value: any) => {
+  const updatePref = <K extends keyof typeof prefs>(key: K, value: (typeof prefs)[K]) => {
     setPrefs(p => ({ ...p, [key]: value }));
     
     try {
@@ -194,13 +206,17 @@ export default function LibraryClipsPage() {
       
       const allLibsRaw = [...serverLibs, ...customLibs];
       
-      let libPrefsData: any = {};
+      let libPrefsData: LibraryPrefs = {};
       try {
         libPrefsData = JSON.parse(localStorage.getItem('exportdash-library-prefs') || '{}');
       } catch(e) {}
       const savedColors = libPrefsData.libraryColors || {};
       
-      const usedColors = Object.values(savedColors).concat(allLibsRaw.map(l => l.color).filter(Boolean)) as string[];
+      const usedColors = Object.values(savedColors).concat(
+        allLibsRaw
+          .map((l) => l.color)
+          .filter((color): color is string => typeof color === 'string')
+      );
       
       const allLibs = allLibsRaw.map(lib => {
         let finalColor = savedColors[lib.id] || lib.color;
@@ -228,17 +244,17 @@ export default function LibraryClipsPage() {
             const res = await fetch(`/api/events?path=${encodeURIComponent(lib.path)}`);
             const data = await res.json();
             if (data.events) {
-              const mappedEvents = data.events.map((e: any) => ({ ...e, libraryId: lib.id, libraryName: lib.name, libraryColor: lib.computedColor }));
+              const mappedEvents = data.events.map((e: LibraryEvent) => ({ ...e, libraryId: lib.id, libraryName: lib.name, libraryColor: lib.computedColor }));
               allEvents = [...allEvents, ...mappedEvents];
             }
           } else if (lib.type === 'client') {
-            const handle = await get(lib.id) as FileSystemDirectoryHandle;
+            const handle = await get(lib.id) as PermissionDirectoryHandle;
             if (handle) {
               if (await handle.queryPermission({mode: 'read'}) !== 'granted') {
                 await handle.requestPermission({mode: 'read'});
               }
               const clientEvents = await scanClientDirectory(handle);
-              const mappedEvents = clientEvents.map((e: any) => ({ ...e, libraryId: lib.id, libraryName: lib.name, libraryColor: lib.computedColor }));
+              const mappedEvents = clientEvents.map((e: LibraryEvent) => ({ ...e, libraryId: lib.id, libraryName: lib.name, libraryColor: lib.computedColor }));
               allEvents = [...allEvents, ...mappedEvents];
             }
           }
@@ -250,14 +266,15 @@ export default function LibraryClipsPage() {
       // Deduplicate events by id
       const uniqueEvents = Array.from(new Map(allEvents.map(e => [e.id, e])).values());
       setEvents(uniqueEvents);
-    } catch (err: any) {
-      setError(err.message || 'Failed to load library data');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load library data');
     } finally {
       setIsLoading(false);
     }
   }, [enableLibraryReview]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- kicking off the async load is the effect's purpose
     loadData();
   }, [loadData]);
 
@@ -286,8 +303,7 @@ export default function LibraryClipsPage() {
       return;
     }
     try {
-      // @ts-ignore - TS doesn't know about showDirectoryPicker everywhere yet
-      const handle = await window.showDirectoryPicker();
+      const handle = await (window as DirectoryPickerWindow).showDirectoryPicker();
       const name = prompt('Enter a name for this library:', handle.name);
       if (!name) return;
 
@@ -311,8 +327,8 @@ export default function LibraryClipsPage() {
       return;
     }
     if (!confirm('Are you sure you want to remove this library from your configuration?')) return;
-    const stored = await get('exportdash-user-libraries') || [];
-    const updated = stored.filter((l: any) => l.id !== id);
+    const stored = ((await get('exportdash-user-libraries')) || []) as LibraryConfig[];
+    const updated = stored.filter((l) => l.id !== id);
     await set('exportdash-user-libraries', updated);
     loadData();
   };
@@ -321,8 +337,8 @@ export default function LibraryClipsPage() {
     const newName = prompt('Enter a new name for this library:', currentName);
     if (!newName || newName === currentName) return;
 
-    const stored = await get('exportdash-user-libraries') || [];
-    const updated = stored.map((l: any) => l.id === id ? { ...l, name: newName } : l);
+    const stored = ((await get('exportdash-user-libraries')) || []) as LibraryConfig[];
+    const updated = stored.map((l) => l.id === id ? { ...l, name: newName } : l);
     await set('exportdash-user-libraries', updated);
     loadData();
   };
@@ -699,13 +715,13 @@ export default function LibraryClipsPage() {
 
                     <div className="space-y-2">
                       {libraries.map(lib => {
-                        const isUserAdded = (lib as any).isUserAdded;
+                        const isUserAdded = lib.isUserAdded;
                         return (
                           <div key={lib.id} className="flex items-center justify-between bg-gray-800 p-3 rounded-lg border border-gray-700 group">
                             <div className="flex items-center gap-3 overflow-hidden flex-1 mr-4">
                               <input 
                                 type="color" 
-                                value={(lib as any).computedColor || '#3b82f6'} 
+                                value={lib.computedColor || '#3b82f6'} 
                                 onChange={(e) => handleChangeLibraryColor(lib.id, e.target.value)}
                                 className="w-5 h-5 rounded cursor-pointer border-0 p-0 bg-transparent flex-shrink-0" 
                                 title="Change Library Color"

@@ -1,12 +1,13 @@
 import fs from 'fs';
 import protobuf from 'protobufjs';
 import { DashcamMP4 } from './src/lib/dashcam-mp4';
+import type { SeiMetadataType } from './src/lib/dashcam-mp4';
 
 async function main() {
   console.log('Loading protobuf schema...');
   const protoText = fs.readFileSync('public/dashcam.proto', 'utf8');
   const root = protobuf.parse(protoText, { keepCase: true }).root;
-  const seiMetadata = root.lookupType('SeiMetadata') as any;
+  const seiMetadata = root.lookupType('SeiMetadata') as unknown as SeiMetadataType;
 
   const folder = 'clips/SentryClip/2026-05-04_20-34-28';
   const files = fs.readdirSync(folder).filter(f => f.endsWith('.mp4'));

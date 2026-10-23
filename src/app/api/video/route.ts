@@ -37,7 +37,6 @@ export async function GET(request: Request) {
       
       const fileStream = fs.createReadStream(absolutePath, { start, end });
       
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const stream = new ReadableStream({
         start(controller) {
           fileStream.on('data', (chunk) => controller.enqueue(chunk));

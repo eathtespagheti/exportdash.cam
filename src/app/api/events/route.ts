@@ -82,7 +82,7 @@ function findEvents(basePath: string, currentPath: string = '', depth: number = 
             dateStr = dateObj.toLocaleString();
           }
         }
-      } catch (e) {
+      } catch {
         // Ignore JSON parse errors
       }
 
