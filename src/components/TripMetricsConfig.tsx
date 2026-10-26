@@ -248,6 +248,50 @@ export function TripMetricsConfig({
               <option value="rated">Rated</option>
             </select>
           </div>
+
+          <div>
+            <label
+              className="block text-[10px] text-gray-500 uppercase tracking-wide mb-1"
+              htmlFor="teslamate-power-max-kw"
+            >
+              Gauge full power (kW)
+            </label>
+            <input
+              id="teslamate-power-max-kw"
+              aria-label="Gauge full power in kilowatts"
+              type="number"
+              min={1}
+              className="w-full bg-gray-800 text-gray-200 text-xs rounded px-1.5 py-1 border border-gray-600"
+              value={config.powerGaugeMaxKw}
+              onChange={(e) => {
+                const value = Number(e.target.value);
+                if (Number.isFinite(value) && value > 0)
+                  update({ ...config, powerGaugeMaxKw: Math.round(value) });
+              }}
+            />
+          </div>
+
+          <div>
+            <label
+              className="block text-[10px] text-gray-500 uppercase tracking-wide mb-1"
+              htmlFor="teslamate-power-regen-kw"
+            >
+              Gauge regen limit (kW)
+            </label>
+            <input
+              id="teslamate-power-regen-kw"
+              aria-label="Gauge regen limit in kilowatts"
+              type="number"
+              min={1}
+              className="w-full bg-gray-800 text-gray-200 text-xs rounded px-1.5 py-1 border border-gray-600"
+              value={config.powerGaugeRegenMaxKw}
+              onChange={(e) => {
+                const value = Number(e.target.value);
+                if (Number.isFinite(value) && value > 0)
+                  update({ ...config, powerGaugeRegenMaxKw: Math.round(value) });
+              }}
+            />
+          </div>
         </div>
       </div>
     </div>

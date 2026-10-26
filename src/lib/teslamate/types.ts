@@ -46,6 +46,10 @@ export interface TeslaMateConfig {
    * `https://grafana.example/d/abc/drive-details?var-drive_id={driveId}`
    */
   tripLinkTemplate: string;
+  /** Full-scale power for the gauge, in kW. Default is ~500 hp. */
+  powerGaugeMaxKw: number;
+  /** Full-scale regenerative power for the gauge, in kW (positive number). */
+  powerGaugeRegenMaxKw: number;
 }
 
 export interface CarInfo {

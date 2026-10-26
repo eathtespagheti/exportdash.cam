@@ -5,7 +5,7 @@ import { IconDownload, IconPlayerStop, IconLoader2, IconCheck } from '@tabler/ic
 import { SeiData, SeiWithFrameIndex } from '@/lib/dashcam-mp4';
 import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
 import { VideoSequence, TrimPoints, CameraSegment, formatDuration, LayoutCameraConfig, DEFAULT_LAYOUT_CONFIG, FormatType, getFormatPreset, PortraitLayoutType, PortraitCameraConfig, getPortraitLayout, DEFAULT_PORTRAIT_CAMERA_CONFIG, AlignPosition, PortraitAlignConfig, DEFAULT_PORTRAIT_ALIGN_CONFIG } from '@/types/video';
-import { fieldByKey, isProvisionalTripField, isTirePressureField, liveFieldValue, tripFieldValue, unitsFrom, TIRE_POSITION_LABELS, TIRE_PRESSURE_KEYS } from '@/lib/teslamate/fields';
+import { fieldByKey, isProvisionalTripField, liveFieldValue, tireGridCells, tripFieldValue, unitsFrom } from '@/lib/teslamate/fields';
 import type { PositionSample, TeslaMateConfig, TripSummary } from '@/lib/teslamate/types';
 import { Tooltip } from './Tooltip';
 
@@ -151,38 +151,41 @@ export function drawTripMetrics(
     lines.push({ label: '', text: 'No TeslaMate trip covers this clip' });
   }
 
+  // Composite live fields are drawn, not printed.
   for (const key of config.exportLiveFields) {
-    if (isTirePressureField(key)) continue;
     const field = fieldByKey(key);
     if (!field) continue;
+    if (field.kind === 'tireGrid' || field.kind === 'powerGauge') continue;
     lines.push({
       label: field.label,
       text: field.format(liveFieldValue(key, sample, config.rangeType), units),
     });
   }
 
-  // Tire pressures read as a 2×2 grid in the positions they describe, the same
-  // way they do in the live panel.
-  const selectedTires = config.exportLiveFields.filter(isTirePressureField);
-  if (selectedTires.length > 0) {
-    const cell = (key: string) => {
-      const field = fieldByKey(key);
-      if (!field) return '';
-      const value = field.format(
-        liveFieldValue(key, sample, config.rangeType),
-        units,
-      );
-      return `${TIRE_POSITION_LABELS[key]} ${value}`;
-    };
-    const front = TIRE_PRESSURE_KEYS.filter(
-      (key) => key.startsWith('tpms_f') && selectedTires.includes(key),
-    ).map(cell);
-    const rear = TIRE_PRESSURE_KEYS.filter(
-      (key) => key.startsWith('tpms_r') && selectedTires.includes(key),
-    ).map(cell);
+  const showGauge = config.exportLiveFields.includes('power');
+  const powerField = fieldByKey('power');
+  const powerKw = liveFieldValue('power', sample, config.rangeType) as number | null;
+  const powerText = powerField
+    ? powerField.format(powerKw, units)
+    : '—';
+  if (showGauge && powerField) {
+    // The value is listed with the other rows; the gauge itself is drawn
+    // beneath the block so it does not disturb the text layout.
+    lines.push({ label: powerField.label, text: powerText });
+  }
 
-    if (front.length > 0) lines.push({ label: '', text: front.join('   ') });
-    if (rear.length > 0) lines.push({ label: '', text: rear.join('   ') });
+  // Tire pressures read as a 2x2 grid in the positions they describe, the same
+  // way they do in the live panel.
+  if (config.exportLiveFields.includes('tires')) {
+    const cells = tireGridCells(sample, units);
+    const front = cells.filter((c) => c.key === 'tpms_fl' || c.key === 'tpms_fr');
+    const rear = cells.filter((c) => c.key === 'tpms_rl' || c.key === 'tpms_rr');
+    if (front.length > 0) {
+      lines.push({ label: '', text: front.map((c) => `${c.label} ${c.text}`).join('   ') });
+    }
+    if (rear.length > 0) {
+      lines.push({ label: '', text: rear.map((c) => `${c.label} ${c.text}`).join('   ') });
+    }
   }
 
   if (lines.length === 0) return;
@@ -247,6 +250,58 @@ export function drawTripMetrics(
     ctx.textAlign = 'right';
     ctx.fillText(line.text, x + boxWidth - padding, lineY);
   });
+
+  // The power gauge: a vertical bar that grows up for drive power and down for
+  // regen, grey and green respectively, matching the car's own meter. The two
+  // directions are scaled separately because regen peaks far lower.
+  if (showGauge) {
+    const barW = 6 * scale;
+    const barH = 34 * scale;
+    const gap = 6 * scale;
+    const blockPad = 6 * scale;
+
+    ctx.font = `500 ${12 * scale}px -apple-system, BlinkMacSystemFont, sans-serif`;
+    const valueWidth = ctx.measureText(powerText).width;
+    const gaugeWidth = blockPad * 2 + barW + gap + valueWidth;
+    const gaugeHeight = barH + blockPad * 2;
+    const gx = x;
+    const gy = y + boxHeight + 4 * scale;
+
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+    ctx.beginPath();
+    ctx.roundRect(gx, gy, gaugeWidth, gaugeHeight, 6 * scale);
+    ctx.fill();
+
+    const barX = gx + blockPad;
+    const barY = gy + blockPad;
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+    ctx.fillRect(barX, barY, barW, barH);
+
+    const zeroY = barY + barH / 2;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+    ctx.fillRect(barX, zeroY, barW, Math.max(1, scale));
+
+    if (powerKw !== null && Number.isFinite(powerKw)) {
+      const regen = powerKw < 0;
+      const full = Math.max(
+        1,
+        regen ? config.powerGaugeRegenMaxKw : config.powerGaugeMaxKw,
+      );
+      const barHeight = Math.min(1, Math.abs(powerKw) / full) * (barH / 2);
+      ctx.fillStyle = regen ? '#34d399' : '#d1d5db';
+      if (regen) {
+        ctx.fillRect(barX, zeroY, barW, barHeight);
+      } else {
+        ctx.fillRect(barX, zeroY - barHeight, barW, barHeight);
+      }
+    }
+
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(powerText, barX + barW + gap, gy + gaugeHeight / 2);
+  }
 }
 
 export function VideoExporter({

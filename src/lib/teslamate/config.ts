@@ -45,12 +45,32 @@ export const DEFAULT_TESLAMATE_CONFIG: TeslaMateConfig = {
   exportLiveFields: [],
   panelCorner: "top-right",
   tripLinkTemplate: "",
+  // A Model 3 AWD with acceleration boost peaks near 500 hp, about 373 kW.
+  powerGaugeMaxKw: 373,
+  // Regen peaks far lower than drive power; 75 kW is a typical Model 3 figure.
+  powerGaugeRegenMaxKw: 75,
 };
 
 function stringArray(value: unknown, fallback: string[]): string[] {
   return Array.isArray(value) && value.every((v) => typeof v === "string")
     ? [...value]
     : [...fallback];
+}
+
+/** The four separate tire keys collapse into one field. */
+const LEGACY_TIRE_KEYS = ["tpms_fl", "tpms_fr", "tpms_rl", "tpms_rr"];
+
+/**
+ * Moves a saved list onto the current field keys.
+ *
+ * The tire pressures used to be four selectable fields; they are now one
+ * "Tire pressure" field, so a saved list that named any of them keeps the
+ * setting instead of silently losing it.
+ */
+function migrateFieldKeys(keys: string[]): string[] {
+  const hadTires = keys.some((key) => LEGACY_TIRE_KEYS.includes(key));
+  const rest = keys.filter((key) => !LEGACY_TIRE_KEYS.includes(key));
+  return hadTires && !rest.includes("tires") ? [...rest, "tires"] : rest;
 }
 
 /** Reads the stored settings, merged over the defaults. */
@@ -88,15 +108,23 @@ export function loadTeslaMateConfig(): TeslaMateConfig {
       stored.rememberToken === true && typeof stored.token === "string"
         ? stored.token
         : null,
-    liveFields: stringArray(stored.liveFields, DEFAULT_TESLAMATE_CONFIG.liveFields),
-    tripFields: stringArray(
-      stored.tripFields,
-      DEFAULT_TESLAMATE_CONFIG.tripFields,
+    liveFields: migrateFieldKeys(
+      stringArray(stored.liveFields, DEFAULT_TESLAMATE_CONFIG.liveFields),
     ),
-    exportLiveFields: stringArray(
-      stored.exportLiveFields,
-      DEFAULT_TESLAMATE_CONFIG.exportLiveFields,
+    tripFields: migrateFieldKeys(
+      stringArray(stored.tripFields, DEFAULT_TESLAMATE_CONFIG.tripFields),
     ),
+    exportLiveFields: migrateFieldKeys(
+      stringArray(stored.exportLiveFields, DEFAULT_TESLAMATE_CONFIG.exportLiveFields),
+    ),
+    powerGaugeMaxKw:
+      typeof stored.powerGaugeMaxKw === "number" && stored.powerGaugeMaxKw > 0
+        ? stored.powerGaugeMaxKw
+        : DEFAULT_TESLAMATE_CONFIG.powerGaugeMaxKw,
+    powerGaugeRegenMaxKw:
+      typeof stored.powerGaugeRegenMaxKw === "number" && stored.powerGaugeRegenMaxKw > 0
+        ? stored.powerGaugeRegenMaxKw
+        : DEFAULT_TESLAMATE_CONFIG.powerGaugeRegenMaxKw,
   };
 }
 

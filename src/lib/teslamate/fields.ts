@@ -31,10 +31,21 @@ export interface Units {
   elevationUnit: ElevationUnit;
 }
 
+/**
+ * How a field is drawn.
+ *
+ * Most fields are a single value. A few are composites that need more than a
+ * string: the tire pressures are a 2x2 grid in their real positions, and power
+ * is a vertical gauge like the one in the car.
+ */
+export type FieldKind = "value" | "tireGrid" | "powerGauge";
+
 export interface FieldDef {
   key: string;
   label: string;
   group: "trip" | "live";
+  /** Defaults to `"value"` when omitted. */
+  kind?: FieldKind;
   /**
    * Renders the value. `value` is authoritative when it is a finite number;
    * `trip` is the fallback source for the two derived fields. Returns `DASH`
@@ -196,14 +207,19 @@ export const TRIP_FIELDS: FieldDef[] = [
 export const LIVE_FIELDS: FieldDef[] = [
   { key: "battery", label: "Battery", group: "live", format: numeric(formatPercent) },
   { key: "usable_battery", label: "Usable battery", group: "live", format: numeric(formatPercent) },
-  { key: "power", label: "Power", group: "live", format: numeric((v) => formatPower(v)) },
+  { key: "power", label: "Power", group: "live", kind: "powerGauge", format: numeric((v) => formatPower(v)) },
   { key: "range", label: "Range", group: "live", format: numeric(formatDistance) },
   { key: "odometer", label: "Odometer", group: "live", format: numeric(formatDistance) },
   { key: "elevation", label: "Elevation", group: "live", format: numeric(formatElevation) },
-  { key: "tpms_fl", label: "Tire pressure FL", group: "live", format: numeric(formatPressure) },
-  { key: "tpms_fr", label: "Tire pressure FR", group: "live", format: numeric(formatPressure) },
-  { key: "tpms_rl", label: "Tire pressure RL", group: "live", format: numeric(formatPressure) },
-  { key: "tpms_rr", label: "Tire pressure RR", group: "live", format: numeric(formatPressure) },
+  {
+    // Rendered as the 2x2 grid by the panel and the exporter; `format` is only
+    // the text fallback for a single-line context.
+    key: "tires",
+    label: "Tire pressure",
+    group: "live",
+    kind: "tireGrid",
+    format: () => DASH,
+  },
   { key: "outside_temp", label: "Outside temp", group: "live", format: numeric(formatTemperature) },
   { key: "inside_temp", label: "Inside temp", group: "live", format: numeric(formatTemperature) },
 ];
@@ -327,8 +343,35 @@ export const TIRE_POSITION_LABELS: Record<string, string> = {
   tpms_rr: "RR",
 };
 
-export function isTirePressureField(key: string): boolean {
-  return (TIRE_PRESSURE_KEYS as readonly string[]).includes(key);
+/** Which sample field each tire key reads. */
+const TIRE_SAMPLE_FIELD: Record<string, keyof PositionSample> = {
+  tpms_fl: "tpmsFl",
+  tpms_fr: "tpmsFr",
+  tpms_rl: "tpmsRl",
+  tpms_rr: "tpmsRr",
+};
+
+export interface TireCell {
+  key: string;
+  label: string;
+  text: string;
+}
+
+/** The four tire pressures, in position order, formatted for display. */
+export function tireGridCells(sample: PositionSample | null, units: Units): TireCell[] {
+  return TIRE_PRESSURE_KEYS.map((key) => {
+    const raw = sample ? (sample[TIRE_SAMPLE_FIELD[key]] as number | null) : null;
+    return {
+      key,
+      label: TIRE_POSITION_LABELS[key],
+      text: raw === null ? DASH : formatPressure(raw, units),
+    };
+  });
+}
+
+/** Whether a field renders as the 2x2 tire grid. */
+export function isTireField(key: string): boolean {
+  return key === "tires";
 }
 
 /**

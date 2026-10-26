@@ -2,13 +2,11 @@
 
 import {
   DASH,
-  TIRE_POSITION_LABELS,
-  TIRE_PRESSURE_KEYS,
   expandTripLink,
   fieldByKey,
   isProvisionalTripField,
-  isTirePressureField,
   liveFieldValue,
+  tireGridCells,
   tripFieldValue,
   unitsFrom,
   type FieldDef,
@@ -52,7 +50,7 @@ function rowsFor(
 ): Row[] {
   return keys
     .map((key) => fieldByKey(key))
-    .filter((field): field is FieldDef => Boolean(field))
+    .filter((field): field is FieldDef => Boolean(field && field.kind !== 'tireGrid' && field.kind !== 'powerGauge'))
     .map((field) => ({
       label: field.label,
       text: hide?.(field.key)
@@ -62,14 +60,61 @@ function rowsFor(
 }
 
 /**
+ * The car's own power meter: a vertical bar that grows upward for drive power
+ * and downward for regeneration, grey for consumption and green for regen.
+ *
+ * The two directions are scaled independently, because regen peaks far lower
+ * than drive power — a single scale would make regen invisible.
+ */
+function PowerGauge({
+  kw,
+  text,
+  maxKw,
+  regenMaxKw,
+}: {
+  kw: number | null;
+  text: string;
+  maxKw: number;
+  regenMaxKw: number;
+}) {
+  const full = Math.max(1, maxKw);
+  const regenFull = Math.max(1, regenMaxKw);
+  const isRegen = kw !== null && kw < 0;
+  const scale = isRegen ? regenFull : full;
+  const fraction =
+    kw === null ? 0 : Math.min(1, Math.abs(kw) / scale) * 50;
+
+  return (
+    <div className="flex items-center gap-2">
+      <div
+        className="relative w-2 h-14 rounded-sm bg-white/10 overflow-hidden"
+        aria-label="Power gauge"
+        role="img"
+      >
+        <div className="absolute left-0 right-0 top-1/2 h-px bg-white/30" />
+        <div
+          className={`absolute left-0 right-0 ${isRegen ? 'bg-emerald-400' : 'bg-gray-300'}`}
+          style={
+            isRegen
+              ? { top: '50%', height: `${fraction}%` }
+              : { bottom: '50%', height: `${fraction}%` }
+          }
+        />
+      </div>
+      <span className="font-medium tabular-nums">{text}</span>
+    </div>
+  );
+}
+
+/**
  * The TeslaMate trip metrics, shown over the video during playback.
  *
  * Two blocks: the trip summary, which is constant for the whole trip, and the
  * live values, which follow the playback position. The user chooses which
  * fields appear in each.
  *
- * Tire pressures are drawn as a 2×2 grid in the positions they describe,
- * rather than four separate rows, so a glance tells you which corner is low.
+ * Composite fields are drawn rather than printed: tire pressures as a 2x2 grid
+ * in the positions they describe, power as a vertical gauge.
  */
 export function TripMetricsPanel({
   trip,
@@ -102,26 +147,22 @@ export function TripMetricsPanel({
     (key) => isProvisional && isProvisionalTripField(key),
   );
 
-  // Tire pressures are rendered as a grid, so they are not part of the row list.
-  const tireKeys = config.liveFields.filter(isTirePressureField);
+  const showTires = config.liveFields.includes('tires');
+  const showGauge = config.liveFields.includes('power');
   const liveRows = rowsFor(
-    config.liveFields.filter((key) => !isTirePressureField(key)),
+    config.liveFields,
     (key) => liveFieldValue(key, sample, config.rangeType),
     units,
   );
 
-  const tires = TIRE_PRESSURE_KEYS.filter((key) => tireKeys.includes(key)).map(
-    (key) => ({
-      key,
-      label: TIRE_POSITION_LABELS[key],
-      text: fieldByKey(key)!.format(
-        liveFieldValue(key, sample, config.rangeType),
-        units,
-      ),
-    }),
-  );
+  const powerField = fieldByKey('power');
+  const powerText = powerField
+    ? powerField.format(liveFieldValue('power', sample, config.rangeType), units)
+    : DASH;
+  const powerKw = liveFieldValue('power', sample, config.rangeType) as number | null;
 
-  const showLiveBlock = liveRows.length > 0 || tires.length > 0;
+  const tires = showTires ? tireGridCells(sample, units) : [];
+  const showLiveBlock = liveRows.length > 0 || showGauge || tires.length > 0;
 
   return (
     <div className={`${corner} pointer-events-none flex flex-col gap-1 items-start`}>
@@ -153,6 +194,18 @@ export function TripMetricsPanel({
 
       {showLiveBlock && (
         <div className="px-2 py-1 rounded-md bg-black/50 backdrop-blur-sm text-white/90 text-xs flex flex-col gap-0.5">
+          {showGauge && (
+            <div className="flex items-baseline gap-2">
+              <span className="text-white/50">Power</span>
+              <PowerGauge
+                kw={Number.isFinite(powerKw) ? powerKw : null}
+                text={powerText}
+                maxKw={config.powerGaugeMaxKw}
+                regenMaxKw={config.powerGaugeRegenMaxKw}
+              />
+            </div>
+          )}
+
           {liveRows.map((row) => (
             <div key={row.label} className="flex items-baseline gap-2">
               <span className="text-white/50">{row.label}</span>
