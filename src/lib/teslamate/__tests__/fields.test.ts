@@ -1,6 +1,30 @@
 import { describe, expect, it } from "vitest";
 import { LIVE_FIELDS, TRIP_FIELDS, fieldByKey, tireGridCells, type Units } from "@/lib/teslamate/fields";
-import type { TripSummary } from "@/lib/teslamate/types";
+import type { PositionSample, TripSummary } from "@/lib/teslamate/types";
+
+function sample(overrides: Partial<PositionSample> = {}): PositionSample {
+  return {
+    tMs: 0,
+    speedKmh: null,
+    powerKw: null,
+    batteryPct: null,
+    usableBatteryPct: null,
+    odometerKm: null,
+    elevationM: null,
+    idealRangeKm: null,
+    estRangeKm: null,
+    ratedRangeKm: null,
+    tpmsFl: null,
+    tpmsFr: null,
+    tpmsRl: null,
+    tpmsRr: null,
+    outsideTempC: null,
+    insideTempC: null,
+    latitude: null,
+    longitude: null,
+    ...overrides,
+  };
+}
 
 const METRIC: Units = {
   speedUnit: "kmh",
@@ -63,14 +87,8 @@ describe("unit conversion", () => {
     expect(key("tires").format(2.9, IMPERIAL)).toBe("—");
     expect(key("tires").format(2.9, METRIC)).toBe("—");
     // The grid component formats each tire individually.
-    expect(tireGridCells(
-      { tMs: 0, tpmsFl: 2.9, tpmsFr: null, tpmsRl: null, tpmsRr: null } as any,
-      IMPERIAL,
-    )[0].text).toBe("42.1 psi");
-    expect(tireGridCells(
-      { tMs: 0, tpmsFl: 2.9, tpmsFr: null, tpmsRl: null, tpmsRr: null } as any,
-      METRIC,
-    )[0].text).toBe("2.9 bar");
+    expect(tireGridCells(sample({ tpmsFl: 2.9 }), IMPERIAL)[0].text).toBe("42.1 psi");
+    expect(tireGridCells(sample({ tpmsFl: 2.9 }), METRIC)[0].text).toBe("2.9 bar");
   });
 
   it("converts temperature between C and F", () => {
