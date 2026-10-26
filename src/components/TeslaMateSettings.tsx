@@ -49,6 +49,7 @@ export function TeslaMateSettings({ onClose, onSaved }: TeslaMateSettingsProps) 
   const [tzOffset, setTzOffset] = useState(
     config.tzOffsetMinutes === null ? '' : String(config.tzOffsetMinutes),
   );
+  const [tripLink, setTripLink] = useState(config.tripLinkTemplate);
 
   const [datasources, setDatasources] = useState<DatasourceInfo[]>([]);
   const [cars, setCars] = useState<CarInfo[]>([]);
@@ -118,6 +119,7 @@ export function TeslaMateSettings({ onClose, onSaved }: TeslaMateSettingsProps) 
       carId: carId === '' ? null : Number(carId),
       tzOffsetMinutes:
         offset !== null && Number.isFinite(offset) ? Math.trunc(offset) : null,
+      tripLinkTemplate: tripLink.trim(),
     });
 
     onSaved();
@@ -188,7 +190,9 @@ export function TeslaMateSettings({ onClose, onSaved }: TeslaMateSettingsProps) 
                 Remember the token on this device
               </label>
               <p className="text-xs text-gray-500 mt-1">
-                Leave empty if your Grafana allows anonymous access.
+                Leave empty if your Grafana allows anonymous access, or if the
+                deployment already sets <code className="text-gray-400">GRAFANA_TOKEN</code> —
+                then the token never reaches the browser at all.
               </p>
             </div>
 
@@ -233,6 +237,26 @@ export function TeslaMateSettings({ onClose, onSaved }: TeslaMateSettingsProps) 
                 </select>
               </div>
             )}
+
+            <div>
+              <label className={labelClass} htmlFor="teslamate-trip-link">
+                Trip dashboard link
+              </label>
+              <input
+                id="teslamate-trip-link"
+                className={inputClass}
+                value={tripLink}
+                onChange={(e) => setTripLink(e.target.value)}
+                placeholder="https://grafana.example/d/abc/drive-details?var-drive_id={driveId}"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Optional. Shown as &ldquo;Trip stats&rdquo; on the panel. Placeholders:{' '}
+                <code className="text-gray-400">{'{driveId}'}</code>,{' '}
+                <code className="text-gray-400">{'{carId}'}</code>,{' '}
+                <code className="text-gray-400">{'{start}'}</code>,{' '}
+                <code className="text-gray-400">{'{end}'}</code>.
+              </p>
+            </div>
 
             <div>
               <label className={labelClass} htmlFor="teslamate-tz">

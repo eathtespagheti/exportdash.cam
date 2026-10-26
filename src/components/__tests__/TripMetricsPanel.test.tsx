@@ -130,6 +130,44 @@ describe("TripMetricsPanel", () => {
     expect(screen.getByText("—")).toBeTruthy();
   });
 
+  it("lays the tire pressures out in the positions they describe", () => {
+    renderPanel({
+      config: {
+        ...DEFAULT_TESLAMATE_CONFIG,
+        tripFields: [],
+        liveFields: ["tpms_fl", "tpms_fr", "tpms_rl", "tpms_rr"],
+      },
+    });
+
+    const grid = screen.getByLabelText("Tire pressures");
+    expect(grid.className).toContain("grid-cols-2");
+    for (const position of ["FL", "FR", "RL", "RR"]) {
+      expect(screen.getByLabelText(`Tire ${position}`)).toBeTruthy();
+    }
+    // Both front tires read 2.9 and both rear tires 3.0 in the fixture.
+    expect(screen.getAllByText("2.9 bar")).toHaveLength(2);
+    expect(screen.getAllByText("3.0 bar")).toHaveLength(2);
+  });
+
+  it("renders a trip stats link with the trip expanded into it", () => {
+    renderPanel({
+      carId: 1,
+      config: {
+        ...DEFAULT_TESLAMATE_CONFIG,
+        tripFields: ["trip_distance"],
+        tripLinkTemplate: "https://g/d/x?var-drive_id={driveId}&car={carId}&from={startMs}",
+      },
+    });
+
+    const link = screen.getByRole("link", { name: /trip stats/i });
+    expect(link.getAttribute("href")).toBe("https://g/d/x?var-drive_id=7&car=1&from=0");
+  });
+
+  it("renders no link when no template is configured", () => {
+    renderPanel();
+    expect(screen.queryByRole("link")).toBeNull();
+  });
+
   it("does not show a running distance for a trip still in progress", () => {
     // TeslaMate can report 0 for a drive that has only just started; that is
     // not a 0 km trip.

@@ -44,6 +44,7 @@ export const DEFAULT_TESLAMATE_CONFIG: TeslaMateConfig = {
   tripFields: TRIP_EXPORT_DEFAULT,
   exportLiveFields: [],
   panelCorner: "top-right",
+  tripLinkTemplate: "",
 };
 
 function stringArray(value: unknown, fallback: string[]): string[] {
@@ -77,6 +78,10 @@ export function loadTeslaMateConfig(): TeslaMateConfig {
       typeof stored.grafanaUrl === "string"
         ? stored.grafanaUrl
         : DEFAULT_TESLAMATE_CONFIG.grafanaUrl,
+    tripLinkTemplate:
+      typeof stored.tripLinkTemplate === "string"
+        ? stored.tripLinkTemplate
+        : DEFAULT_TESLAMATE_CONFIG.tripLinkTemplate,
     enabled: stored.enabled === true,
     // A token is only ever handed back when the user asked for it to be kept.
     token:

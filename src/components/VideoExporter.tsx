@@ -5,7 +5,7 @@ import { IconDownload, IconPlayerStop, IconLoader2, IconCheck } from '@tabler/ic
 import { SeiData, SeiWithFrameIndex } from '@/lib/dashcam-mp4';
 import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
 import { VideoSequence, TrimPoints, CameraSegment, formatDuration, LayoutCameraConfig, DEFAULT_LAYOUT_CONFIG, FormatType, getFormatPreset, PortraitLayoutType, PortraitCameraConfig, getPortraitLayout, DEFAULT_PORTRAIT_CAMERA_CONFIG, AlignPosition, PortraitAlignConfig, DEFAULT_PORTRAIT_ALIGN_CONFIG } from '@/types/video';
-import { fieldByKey, isProvisionalTripField, liveFieldValue, tripFieldValue, unitsFrom } from '@/lib/teslamate/fields';
+import { fieldByKey, isProvisionalTripField, isTirePressureField, liveFieldValue, tripFieldValue, unitsFrom, TIRE_POSITION_LABELS, TIRE_PRESSURE_KEYS } from '@/lib/teslamate/fields';
 import type { PositionSample, TeslaMateConfig, TripSummary } from '@/lib/teslamate/types';
 import { Tooltip } from './Tooltip';
 
@@ -152,12 +152,37 @@ export function drawTripMetrics(
   }
 
   for (const key of config.exportLiveFields) {
+    if (isTirePressureField(key)) continue;
     const field = fieldByKey(key);
     if (!field) continue;
     lines.push({
       label: field.label,
       text: field.format(liveFieldValue(key, sample, config.rangeType), units),
     });
+  }
+
+  // Tire pressures read as a 2×2 grid in the positions they describe, the same
+  // way they do in the live panel.
+  const selectedTires = config.exportLiveFields.filter(isTirePressureField);
+  if (selectedTires.length > 0) {
+    const cell = (key: string) => {
+      const field = fieldByKey(key);
+      if (!field) return '';
+      const value = field.format(
+        liveFieldValue(key, sample, config.rangeType),
+        units,
+      );
+      return `${TIRE_POSITION_LABELS[key]} ${value}`;
+    };
+    const front = TIRE_PRESSURE_KEYS.filter(
+      (key) => key.startsWith('tpms_f') && selectedTires.includes(key),
+    ).map(cell);
+    const rear = TIRE_PRESSURE_KEYS.filter(
+      (key) => key.startsWith('tpms_r') && selectedTires.includes(key),
+    ).map(cell);
+
+    if (front.length > 0) lines.push({ label: '', text: front.join('   ') });
+    if (rear.length > 0) lines.push({ label: '', text: rear.join('   ') });
   }
 
   if (lines.length === 0) return;

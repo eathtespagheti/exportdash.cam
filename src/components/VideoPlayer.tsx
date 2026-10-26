@@ -1151,6 +1151,7 @@ export function VideoPlayer({
                 sample={teslaMate.sampleForMoment(currentMomentIndex, localTime)}
                 config={teslaMateConfig}
                 speedUnit={speedUnit}
+                carId={teslaMate.carId}
               />
             )}
 

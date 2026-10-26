@@ -112,6 +112,24 @@ describe("drawTripMetrics", () => {
     }
   });
 
+  it("draws the tire pressures as a 2x2 grid in their real positions", () => {
+    const { ctx, texts } = mockContext();
+
+    drawTripMetrics(ctx, 1280, 720, TRIP, SAMPLE, {
+      ...DEFAULT_TESLAMATE_CONFIG,
+      tripFields: [],
+      exportLiveFields: ["tpms_fl", "tpms_fr", "tpms_rl", "tpms_rr"],
+    }, "kmh");
+
+    const joined = texts.join(" ");
+    for (const cell of ["FL 2.9 bar", "FR 2.9 bar", "RL 3.0 bar", "RR 3.0 bar"]) {
+      expect(joined).toContain(cell);
+    }
+    // Front tires share a line, rear tires share the next one.
+    expect(texts.some((t) => t.includes("FL") && t.includes("FR"))).toBe(true);
+    expect(texts.some((t) => t.includes("RL") && t.includes("RR"))).toBe(true);
+  });
+
   it("says so when no trip covers the clip", () => {
     const { ctx, texts } = mockContext();
 

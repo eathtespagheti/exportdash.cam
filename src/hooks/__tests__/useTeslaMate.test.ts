@@ -170,8 +170,17 @@ afterEach(() => {
 });
 
 /** Answers the datasource list and the three query shapes the hook sends. */
-function mockGrafana(aMs: number) {
+function mockGrafana(
+  aMs: number,
+  options: { configured?: boolean } = {},
+) {
   fetchMock.mockImplementation(async (url: string, init: RequestInit) => {
+    if (String(url).endsWith("/grafana-proxy/status")) {
+      return jsonResponse({
+        configured: options.configured === true,
+        tokenConfigured: options.configured === true,
+      });
+    }
     if (String(url).endsWith("/api/datasources")) {
       return jsonResponse([{ uid: DS_UID, name: "TeslaMate", type: DS_TYPE }]);
     }
@@ -188,13 +197,32 @@ function mockGrafana(aMs: number) {
 }
 
 describe("useTeslaMate", () => {
-  it("does nothing when no Grafana URL is configured", async () => {
+  it("stays unconfigured when neither the user nor the deployment configured it", async () => {
     saveTeslaMateConfig({ ...DEFAULT_TESLAMATE_CONFIG, grafanaUrl: "" });
+    mockGrafana(0, { configured: false });
 
     const { result } = renderHook(() => useTeslaMate(null));
 
     await waitFor(() => expect(result.current.status).toBe("unconfigured"));
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.current.error).toBeNull();
+  });
+
+  it("enables itself when the deployment is pre-configured", async () => {
+    // Nothing saved by the user: the server supplies GRAFANA_UPSTREAM and
+    // GRAFANA_TOKEN, so the app needs no setup at all.
+    const moments = makeMoments();
+    const aMs = moments[0].timestamp.getTime();
+    mockGrafana(aMs, { configured: true });
+
+    const sequences = detectSequences(moments);
+    const { result } = renderHook(() => useTeslaMate(sequences[0]));
+
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    expect(result.current.carId).toBe(1);
+
+    const urls = fetchMock.mock.calls.map((c) => String(c[0]));
+    expect(urls).toContain("/grafana-proxy/status");
+    expect(urls.some((u) => u.startsWith("/grafana-proxy/api/"))).toBe(true);
   });
 
   it("reports when no TeslaMate datasource exists", async () => {

@@ -220,6 +220,27 @@ export async function queryFrames(
   return frames;
 }
 
+/** Whether the deployment's Grafana proxy is configured. Never includes secrets. */
+export async function proxyStatus(): Promise<{
+  configured: boolean;
+  tokenConfigured: boolean;
+}> {
+  try {
+    const response = await fetch("/grafana-proxy/status", { cache: "no-store" });
+    if (!response.ok) return { configured: false, tokenConfigured: false };
+    const body = (await response.json()) as {
+      configured?: unknown;
+      tokenConfigured?: unknown;
+    };
+    return {
+      configured: body?.configured === true,
+      tokenConfigured: body?.tokenConfigured === true,
+    };
+  } catch {
+    return { configured: false, tokenConfigured: false };
+  }
+}
+
 /**
  * Lists the datasources Grafana can query, so the app can find the one
  * holding the TeslaMate schema.

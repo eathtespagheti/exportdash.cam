@@ -37,6 +37,7 @@ describe("loadTeslaMateConfig", () => {
       tripFields: ["trip_distance"],
       exportLiveFields: ["power"],
       panelCorner: "bottom-left",
+      tripLinkTemplate: "https://grafana.example/d/abc?var-drive_id={driveId}",
     };
 
     saveTeslaMateConfig(config);
@@ -130,6 +131,10 @@ describe("the defaults", () => {
     expect(DEFAULT_TESLAMATE_CONFIG.tripFields.length).toBe(
       TRIP_FIELDS.length - 2,
     );
+  });
+
+  it("has no trip link until one is configured", () => {
+    expect(DEFAULT_TESLAMATE_CONFIG.tripLinkTemplate).toBe("");
   });
 
   it("uses metric units and the ideal range", () => {

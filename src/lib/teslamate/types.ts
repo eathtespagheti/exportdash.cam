@@ -38,6 +38,14 @@ export interface TeslaMateConfig {
   tripFields: string[];
   exportLiveFields: string[];
   panelCorner: PanelCorner;
+  /**
+   * A URL template for the trip's Grafana dashboard, or empty for no link.
+   *
+   * Substituted placeholders: `{driveId}`, `{carId}`, `{start}`, `{end}`
+   * (ISO-8601) and `{startMs}`, `{endMs}`. Example:
+   * `https://grafana.example/d/abc/drive-details?var-drive_id={driveId}`
+   */
+  tripLinkTemplate: string;
 }
 
 export interface CarInfo {

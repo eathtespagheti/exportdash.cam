@@ -16,12 +16,30 @@ import { NextResponse } from 'next/server';
 /** The Grafana base URL, without a trailing slash. Empty disables the proxy. */
 const UPSTREAM = (process.env.GRAFANA_UPSTREAM ?? '').replace(/\/+$/, '');
 
+/**
+ * A Grafana service-account token supplied by the deployment.
+ *
+ * It is injected here, server-side, when the browser does not send one — so a
+ * self-hosted instance can be pre-configured without the token ever reaching
+ * the page. It is deliberately **not** a `NEXT_PUBLIC_` variable.
+ */
+const UPSTREAM_TOKEN = process.env.GRAFANA_TOKEN ?? '';
+
 /** The only paths that may be relayed. Both are read-only. */
 const ALLOWED_PATHS = new Set(['api/ds/query', 'api/datasources']);
 
 export const dynamic = 'force-dynamic';
 
 async function proxy(request: Request, segments: string[]): Promise<Response> {
+  // A tiny status endpoint, so the app can enable itself when the deployment
+  // is pre-configured. It reports booleans only — never the token itself.
+  if (segments.length === 1 && segments[0] === 'status') {
+    return NextResponse.json({
+      configured: Boolean(UPSTREAM),
+      tokenConfigured: Boolean(UPSTREAM_TOKEN),
+    });
+  }
+
   if (!UPSTREAM) {
     return NextResponse.json(
       { error: 'The Grafana proxy is not configured.' },
@@ -47,6 +65,9 @@ async function proxy(request: Request, segments: string[]): Promise<Response> {
   if (authorization) {
     // Relayed verbatim and deliberately never logged.
     headers.Authorization = authorization;
+  } else if (UPSTREAM_TOKEN) {
+    // The deployment's own token, so the browser never has to hold one.
+    headers.Authorization = `Bearer ${UPSTREAM_TOKEN}`;
   }
 
   const body = method === 'POST' ? await request.text() : undefined;

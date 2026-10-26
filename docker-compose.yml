@@ -17,3 +17,7 @@ services:
       #   GRAFANA_UPSTREAM: http://grafana:3000
       # Left empty, the proxy is disabled.
       GRAFANA_UPSTREAM: ""
+      # Optional: a Grafana service-account token (Viewer role). When set, the
+      # app server attaches it to every proxied request, so the token never
+      # reaches the browser and there is nothing to paste into the UI.
+      GRAFANA_TOKEN: ""

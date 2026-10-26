@@ -316,6 +316,50 @@ export function isProvisionalTripField(key: string): boolean {
   );
 }
 
+/** The four tire-pressure field keys, in the positions they describe. */
+export const TIRE_PRESSURE_KEYS = ["tpms_fl", "tpms_fr", "tpms_rl", "tpms_rr"] as const;
+
+/** Labels for the 2×2 tire grid, in reading order: front-left first. */
+export const TIRE_POSITION_LABELS: Record<string, string> = {
+  tpms_fl: "FL",
+  tpms_fr: "FR",
+  tpms_rl: "RL",
+  tpms_rr: "RR",
+};
+
+export function isTirePressureField(key: string): boolean {
+  return (TIRE_PRESSURE_KEYS as readonly string[]).includes(key);
+}
+
+/**
+ * Expands a trip-dashboard URL template, or returns null when there is none.
+ *
+ * Placeholders: `{driveId}`, `{carId}`, `{start}`, `{end}` (ISO-8601),
+ * `{startMs}`, `{endMs}`. A template with no `{driveId}` still expands, so a
+ * link to a dashboard that filters by car and time works too.
+ */
+export function expandTripLink(
+  template: string,
+  trip: TripSummary | null,
+  carId: number | null,
+): string | null {
+  const trimmed = template.trim();
+  if (!trimmed || !trip) return null;
+
+  const start = new Date(trip.startMs);
+  const end = trip.endMs === null ? null : new Date(trip.endMs);
+
+  const expanded = trimmed
+    .replaceAll("{driveId}", String(trip.id))
+    .replaceAll("{carId}", carId === null ? "" : String(carId))
+    .replaceAll("{startMs}", String(trip.startMs))
+    .replaceAll("{endMs}", trip.endMs === null ? "" : String(trip.endMs))
+    .replaceAll("{start}", encodeURIComponent(start.toISOString()))
+    .replaceAll("{end}", end === null ? "" : encodeURIComponent(end.toISOString()));
+
+  return expanded;
+}
+
 /** The unit settings a rendered field uses. */
 export function unitsFrom(
   speedUnit: "mph" | "kmh",

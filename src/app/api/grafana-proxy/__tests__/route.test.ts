@@ -14,8 +14,9 @@ afterEach(() => {
 });
 
 /** Loads the route with a given upstream, since it reads the env at import. */
-async function loadRoute(upstream: string) {
+async function loadRoute(upstream: string, token = "") {
   vi.stubEnv("GRAFANA_UPSTREAM", upstream);
+  vi.stubEnv("GRAFANA_TOKEN", token);
   vi.resetModules();
   return await import("../[...path]/route");
 }
@@ -120,6 +121,50 @@ describe("grafana proxy route", () => {
     );
 
     expect(response.status).toBe(502);
+  });
+
+  it("injects the deployment token when the browser sends none", async () => {
+    const route = await loadRoute("http://grafana:3000", "glsa_env");
+    fetchMock.mockResolvedValue(upstreamResponse({}));
+
+    await route.GET(
+      request("api/datasources"),
+      context(["api", "datasources"]),
+    );
+
+    const init = fetchMock.mock.calls[0][1];
+    expect(init.headers.Authorization).toBe("Bearer glsa_env");
+  });
+
+  it("prefers the browser's token over the deployment's", async () => {
+    const route = await loadRoute("http://grafana:3000", "glsa_env");
+    fetchMock.mockResolvedValue(upstreamResponse({}));
+
+    await route.GET(
+      request("api/datasources", { headers: { authorization: "Bearer from-ui" } }),
+      context(["api", "datasources"]),
+    );
+
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe("Bearer from-ui");
+  });
+
+  it("reports whether the deployment is configured, without leaking the token", async () => {
+    const route = await loadRoute("http://grafana:3000", "glsa_env");
+
+    const response = await route.GET(request("status"), context(["status"]));
+    const body = await response.json();
+
+    expect(body).toEqual({ configured: true, tokenConfigured: true });
+    expect(JSON.stringify(body)).not.toContain("glsa_env");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("reports an unconfigured deployment", async () => {
+    const route = await loadRoute("");
+
+    const response = await route.GET(request("status"), context(["status"]));
+
+    expect(await response.json()).toEqual({ configured: false, tokenConfigured: false });
   });
 
   it("passes Grafana's status through", async () => {

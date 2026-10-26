@@ -203,6 +203,9 @@ settings:
 ```yaml
 environment:
   GRAFANA_UPSTREAM: "http://grafana:3000"
+  # Optional. With this set, there is nothing to paste into the UI and the
+  # token never reaches the browser.
+  GRAFANA_TOKEN: "glsa_…"
 ```
 
 The browser then makes a same-origin request, so **no CORS configuration is
@@ -211,6 +214,9 @@ app server relays only the two read-only endpoints the integration uses
 (`api/ds/query` and `api/datasources`), and the upstream is fixed at deploy time
 rather than taken from the request, so this is not an open relay. It needs a
 server deployment — the Docker image, or any host running `next start`.
+
+With both variables set the integration **enables itself**: no settings dialog,
+no token in the browser. Open a clip and the trip panel appears.
 
 **Direct.** Enter your Grafana's public URL in the settings. This works on any
 deployment, including exportdash.cam — but Grafana OSS emits **no CORS headers**,
@@ -242,6 +248,20 @@ playback position. TeslaMate records tire pressures and temperatures only every
 15–40 seconds, so those carry the last known value forward rather than being
 interpolated — ExportDash will not invent a number the car never reported. A value
 that was never recorded reads as **—**, never as 0.
+
+Tire pressures are drawn as a **2×2 grid** in the positions they describe — FL and
+FR on the top row, RL and RR below — both on screen and burned into the export, so
+a low corner is obvious at a glance.
+
+To link each trip back to Grafana, set a **Trip dashboard link** in the settings.
+It is a URL template, so it works with any dashboard:
+
+```
+https://grafana.example/d/abc123/drive-details?var-car_id={carId}&var-drive_id={driveId}
+```
+
+Placeholders: `{driveId}`, `{carId}`, `{start}`, `{end}` (ISO-8601) and
+`{startMs}`, `{endMs}`. When set, the panel shows a **Trip stats ↗** link.
 
 Clips are matched by timestamp, treating a clip's filename time as local time in
 your browser. If you recorded elsewhere, set the recording timezone offset in the

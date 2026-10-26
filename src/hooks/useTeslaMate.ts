@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   GrafanaError,
   listDatasources,
+  proxyStatus,
   queryFrames,
   type Frame,
   type GrafanaConnection,
@@ -35,6 +36,8 @@ export interface TeslaMateState {
   status: TeslaMateStatus;
   error: GrafanaError | null;
   cars: CarInfo[];
+  /** The car the data belongs to, once resolved. */
+  carId: number | null;
   /** The trip the clip at this moment belongs to, or null. */
   tripForMoment(momentIndex: number): TripSummary | null;
   /** The live values at this moment and offset within the clip, or null. */
@@ -88,6 +91,7 @@ export function useTeslaMate(sequence: VideoSequence | null): TeslaMateState {
   const [status, setStatus] = useState<TeslaMateStatus>("unconfigured");
   const [error, setError] = useState<GrafanaError | null>(null);
   const [cars, setCars] = useState<CarInfo[]>([]);
+  const [carId, setCarId] = useState<number | null>(null);
   const [trips, setTrips] = useState<TripSummary[]>([]);
   const [series, setSeries] = useState<TripSeries | null>(null);
 
@@ -95,24 +99,44 @@ export function useTeslaMate(sequence: VideoSequence | null): TeslaMateState {
     let cancelled = false;
 
     const run = async () => {
-      if (!config.enabled || typeof config.grafanaUrl !== "string" || !config.grafanaUrl.trim()) {
+      setError(null);
+
+      // The deployment may already be configured (GRAFANA_UPSTREAM and
+      // GRAFANA_TOKEN), in which case there is nothing for the user to do.
+      let effective = config;
+      if (!config.enabled) {
+        const status = await proxyStatus();
+        if (!status.configured) {
+          setStatus("unconfigured");
+          return;
+        }
+        effective = {
+          ...config,
+          enabled: true,
+          grafanaUrl: "/grafana-proxy",
+          token: null,
+        };
+      }
+
+      if (
+        typeof effective.grafanaUrl !== "string" ||
+        !effective.grafanaUrl.trim()
+      ) {
         setStatus("unconfigured");
-        setError(null);
         return;
       }
 
       setStatus("loading");
-      setError(null);
 
       try {
-        const { baseUrl } = resolveBaseUrl(config);
+        const { baseUrl } = resolveBaseUrl(effective);
         const connection: GrafanaConnection = {
           baseUrl,
-          token: config.token,
+          token: effective.token,
           datasource: null,
         };
 
-        const discoveryKey = `${baseUrl}|${config.datasourceUid ?? ""}`;
+        const discoveryKey = `${baseUrl}|${effective.datasourceUid ?? ""}`;
         let discovery = discoveryCache.get(discoveryKey);
 
         if (!discovery) {
@@ -128,11 +152,11 @@ export function useTeslaMate(sequence: VideoSequence | null): TeslaMateState {
           }
 
           const chosen =
-            (config.datasourceUid
-              ? postgres.find((d) => d.uid === config.datasourceUid)
+            (effective.datasourceUid
+              ? postgres.find((d) => d.uid === effective.datasourceUid)
               : undefined) ?? postgres[0];
 
-          if (config.datasourceUid && !postgres.some((d) => d.uid === config.datasourceUid)) {
+          if (effective.datasourceUid && !postgres.some((d) => d.uid === effective.datasourceUid)) {
             // The stored UID is gone. Falling back silently would query a
             // different database than the one the user chose.
             throw new GrafanaError(
@@ -164,14 +188,14 @@ export function useTeslaMate(sequence: VideoSequence | null): TeslaMateState {
         };
         const columns = discovery.columns;
         const carList = discovery.cars;
-        const carId = config.carId ?? carList[0]?.id ?? null;
+        const carId = effective.carId ?? carList[0]?.id ?? null;
 
         let resolvedTrips: TripSummary[] = [];
         let resolvedSeries: TripSeries | null = null;
 
         if (sequence && carId !== null) {
-          const startMs = clipWallClockMs(sequence.startTime, 0, config.tzOffsetMinutes);
-          const endMs = clipWallClockMs(sequence.endTime, 0, config.tzOffsetMinutes);
+          const startMs = clipWallClockMs(sequence.startTime, 0, effective.tzOffsetMinutes);
+          const endMs = clipWallClockMs(sequence.endTime, 0, effective.tzOffsetMinutes);
           // The origin is part of the key: the same datasource UID on a
           // different Grafana is a different database.
           const key = `${baseUrl}|${discovery.datasource.uid}|${carId}|${startMs}|${endMs}`;
@@ -193,6 +217,7 @@ export function useTeslaMate(sequence: VideoSequence | null): TeslaMateState {
 
         if (cancelled) return;
         setCars(carList);
+        setCarId(carId);
         setTrips(resolvedTrips);
         setSeries(resolvedSeries);
         setStatus("ready");
@@ -246,5 +271,5 @@ export function useTeslaMate(sequence: VideoSequence | null): TeslaMateState {
     setConfig(loadTeslaMateConfig());
   }, []);
 
-  return { status, error, cars, tripForMoment, sampleForMoment, reload };
+  return { status, error, cars, carId, tripForMoment, sampleForMoment, reload };
 }
