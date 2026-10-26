@@ -91,6 +91,74 @@ describe("TeslaMateSettings", () => {
     expect(stored.rememberToken).toBe(true);
   });
 
+  it("auto-detects the Drive Detail dashboard, preferring the favourite", async () => {
+    render(<TeslaMateSettings onClose={() => {}} onSaved={() => {}} />);
+
+    setUrl("https://grafana.example.com");
+    fetchMock.mockResolvedValue(
+      jsonResponse([
+        { title: "Drive Detail", uid: "plain", url: "/d/plain/drive-detail", isStarred: false },
+        { title: "Drive Detail", uid: "starred", url: "/d/starred/drive-detail", isStarred: true },
+        { title: "Drives", uid: "drives", url: "/d/drives/drives", isStarred: true },
+      ]),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /auto detect/i }));
+
+    await waitFor(() => {
+      expect(
+        (screen.getByLabelText("Trip dashboard link") as HTMLInputElement).value,
+      ).toBe("https://grafana.example.com/d/starred/drive-detail?var-drive_id={driveId}");
+    });
+  });
+
+  it("falls back to the only Drive Detail dashboard when none is starred", async () => {
+    render(<TeslaMateSettings onClose={() => {}} onSaved={() => {}} />);
+
+    setUrl("https://grafana.example.com");
+    fetchMock.mockResolvedValue(
+      jsonResponse([
+        { title: "Drive Detail", uid: "only", url: "/d/only/drive-detail", isStarred: false },
+      ]),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /auto detect/i }));
+
+    await waitFor(() => {
+      expect(
+        (screen.getByLabelText("Trip dashboard link") as HTMLInputElement).value,
+      ).toBe("https://grafana.example.com/d/only/drive-detail?var-drive_id={driveId}");
+    });
+  });
+
+  it("explains when no Drive Detail dashboard exists", async () => {
+    render(<TeslaMateSettings onClose={() => {}} onSaved={() => {}} />);
+
+    setUrl("https://grafana.example.com");
+    fetchMock.mockResolvedValue(jsonResponse([{ title: "Drives", uid: "x" }]));
+
+    fireEvent.click(screen.getByRole("button", { name: /auto detect/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/No dashboard titled "Drive Detail"/i)).toBeTruthy(),
+    );
+  });
+
+  it("requires a public address before building a link through the proxy", async () => {
+    render(<TeslaMateSettings onClose={() => {}} onSaved={() => {}} />);
+
+    // Default URL is the relative proxy path.
+    fetchMock.mockResolvedValue(
+      jsonResponse([{ title: "Drive Detail", uid: "d", url: "/d/d/drive-detail" }]),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /auto detect/i }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/Set the public Grafana address/i)).toBeTruthy(),
+    );
+  });
+
   it("offers the bundled proxy as the default address", () => {
     render(<TeslaMateSettings onClose={() => {}} onSaved={() => {}} />);
     expect((screen.getByLabelText("Grafana URL") as HTMLInputElement).value).toBe(

@@ -45,6 +45,7 @@ export const DEFAULT_TESLAMATE_CONFIG: TeslaMateConfig = {
   exportLiveFields: [],
   panelCorner: "top-right",
   tripLinkTemplate: "",
+  linkBaseUrl: "",
   // A Model 3 AWD with acceleration boost peaks near 500 hp, about 373 kW.
   powerGaugeMaxKw: 373,
   // Regen peaks far lower than drive power; 75 kW is a typical Model 3 figure.
@@ -102,6 +103,10 @@ export function loadTeslaMateConfig(): TeslaMateConfig {
       typeof stored.tripLinkTemplate === "string"
         ? stored.tripLinkTemplate
         : DEFAULT_TESLAMATE_CONFIG.tripLinkTemplate,
+    linkBaseUrl:
+      typeof stored.linkBaseUrl === "string"
+        ? stored.linkBaseUrl
+        : DEFAULT_TESLAMATE_CONFIG.linkBaseUrl,
     enabled: stored.enabled === true,
     // A token is only ever handed back when the user asked for it to be kept.
     token:

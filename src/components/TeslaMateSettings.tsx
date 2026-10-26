@@ -1,8 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { IconX, IconPlugConnected, IconCheck, IconAlertTriangle } from '@tabler/icons-react';
+import { IconX, IconPlugConnected, IconCheck, IconAlertTriangle, IconSearch } from '@tabler/icons-react';
 import {
+  buildUrl,
   GrafanaError,
   grafanaErrorMessage,
   listDatasources,
@@ -50,6 +51,8 @@ export function TeslaMateSettings({ onClose, onSaved }: TeslaMateSettingsProps) 
     config.tzOffsetMinutes === null ? '' : String(config.tzOffsetMinutes),
   );
   const [tripLink, setTripLink] = useState(config.tripLinkTemplate);
+  const [linkBaseUrl, setLinkBaseUrl] = useState(config.linkBaseUrl);
+  const [detecting, setDetecting] = useState(false);
 
   const [datasources, setDatasources] = useState<DatasourceInfo[]>([]);
   const [cars, setCars] = useState<CarInfo[]>([]);
@@ -106,6 +109,86 @@ export function TeslaMateSettings({ onClose, onSaved }: TeslaMateSettingsProps) 
     }
   };
 
+  /**
+   * Auto-detect the TeslaMate "Drive Detail" dashboard.
+   *
+   * Searches Grafana for dashboards titled "Drive Detail", preferring ones
+   * marked as favourite (starred). Sets the trip link template to the chosen
+   * dashboard with a `{driveId}` query placeholder, so clicking "Trip stats"
+   * on the panel opens that dashboard filtered to the current drive.
+   */
+  const detectDriveDetailDashboard = async () => {
+    setDetecting(true);
+    setError(null);
+
+    try {
+      const connection = currentConnection();
+      // Named distinctly: `url` is the Grafana address state above.
+      const searchUrl = buildUrl(connection.baseUrl, '/api/search');
+
+      const response = await fetch(searchUrl, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(connection.token ? { Authorization: `Bearer ${connection.token}` } : {}),
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Grafana search returned ${response.status}`);
+      }
+
+      const dashboards = await response.json();
+
+      if (!Array.isArray(dashboards)) {
+        throw new Error('Unexpected response from Grafana search.');
+      }
+
+      const driveDetails = dashboards.filter(
+        (d) =>
+          d && typeof d === 'object' && typeof d.title === 'string' &&
+          d.title.toLowerCase().includes('drive detail'),
+      );
+
+      if (driveDetails.length === 0) {
+        throw new Error(
+          'No dashboard titled "Drive Detail" was found in Grafana.',
+        );
+      }
+
+      // Prefer a starred (favourite) dashboard when several match.
+      const chosen =
+        driveDetails.find((d) => d.isStarred) || driveDetails[0];
+
+      // A dashboard link has to open in a browser, so it needs the public
+      // Grafana address — the proxy can relay API calls but cannot serve
+      // Grafana's UI or its assets.
+      const configured = url.trim();
+      const linkBase =
+        linkBaseUrl.trim() || (/^https?:\/\//i.test(configured) ? configured : '');
+
+      if (!linkBase) {
+        throw new Error(
+          'Set the public Grafana address below first, so the link can be opened in a browser.',
+        );
+      }
+
+      // Grafana reports the dashboard path relative to its root, e.g.
+      // /d/abc123/drive-details.
+      const path = String(chosen.url ?? `d/${chosen.uid}`);
+      const base = linkBase.replace(/\/+$/, '');
+      const normalized = path.startsWith('/') ? path : `/${path}`;
+
+      setTripLink(`${base}${normalized}?var-drive_id={driveId}`);
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : 'Auto-detect failed.',
+      );
+    } finally {
+      setDetecting(false);
+    }
+  };
+
   const save = () => {
     const offset = tzOffset.trim() === '' ? null : Number(tzOffset);
 
@@ -120,6 +203,7 @@ export function TeslaMateSettings({ onClose, onSaved }: TeslaMateSettingsProps) 
       tzOffsetMinutes:
         offset !== null && Number.isFinite(offset) ? Math.trunc(offset) : null,
       tripLinkTemplate: tripLink.trim(),
+      linkBaseUrl: linkBaseUrl.trim(),
     });
 
     onSaved();
@@ -239,9 +323,37 @@ export function TeslaMateSettings({ onClose, onSaved }: TeslaMateSettingsProps) 
             )}
 
             <div>
-              <label className={labelClass} htmlFor="teslamate-trip-link">
-                Trip dashboard link
+              <label className={labelClass} htmlFor="teslamate-link-base">
+                Public Grafana address (for links)
               </label>
+              <input
+                id="teslamate-link-base"
+                className={inputClass}
+                value={linkBaseUrl}
+                onChange={(e) => setLinkBaseUrl(e.target.value)}
+                placeholder="https://grafana.example.com"
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Only used to open dashboards in a browser — the proxy cannot serve
+                Grafana&apos;s UI. Not needed if the address above is already absolute.
+              </p>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className={labelClass} htmlFor="teslamate-trip-link">
+                  Trip dashboard link
+                </label>
+                <button
+                  type="button"
+                  onClick={detectDriveDetailDashboard}
+                  disabled={detecting}
+                  className="flex items-center gap-1 text-[11px] text-blue-300 hover:text-blue-200 disabled:opacity-50"
+                >
+                  <IconSearch size={12} />
+                  {detecting ? 'Searching…' : 'Auto detect'}
+                </button>
+              </div>
               <input
                 id="teslamate-trip-link"
                 className={inputClass}

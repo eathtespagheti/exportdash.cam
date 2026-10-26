@@ -25,8 +25,12 @@ const UPSTREAM = (process.env.GRAFANA_UPSTREAM ?? '').replace(/\/+$/, '');
  */
 const UPSTREAM_TOKEN = process.env.GRAFANA_TOKEN ?? '';
 
-/** The only paths that may be relayed. Both are read-only. */
-const ALLOWED_PATHS = new Set(['api/ds/query', 'api/datasources']);
+/** The only paths that may be relayed. All read-only. */
+const ALLOWED_PATHS = new Set([
+  'api/ds/query',
+  'api/datasources',
+  'api/search',
+]);
 
 export const dynamic = 'force-dynamic';
 

@@ -87,6 +87,19 @@ describe("grafana proxy route", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("relays the dashboard search", async () => {
+    const route = await loadRoute("http://grafana:3000");
+    fetchMock.mockResolvedValue(upstreamResponse([{ title: "Drive Detail" }]));
+
+    const response = await route.GET(
+      request("api/search", { headers: { authorization: "Bearer tok" } }),
+      context(["api", "search"]),
+    );
+
+    expect(fetchMock.mock.calls[0][0]).toBe("http://grafana:3000/api/search");
+    expect(response.status).toBe(200);
+  });
+
   it("refuses the admin surface", async () => {
     const route = await loadRoute("http://grafana:3000");
 
