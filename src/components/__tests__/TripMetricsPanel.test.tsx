@@ -135,7 +135,7 @@ describe("TripMetricsPanel", () => {
       config: {
         ...DEFAULT_TESLAMATE_CONFIG,
         tripFields: [],
-        liveFields: ["tpms_fl", "tpms_fr", "tpms_rl", "tpms_rr"],
+        liveFields: ["tires"],
       },
     });
 

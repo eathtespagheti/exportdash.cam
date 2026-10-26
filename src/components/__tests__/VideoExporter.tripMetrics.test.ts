@@ -103,7 +103,7 @@ describe("drawTripMetrics", () => {
     drawTripMetrics(ctx, 1280, 720, null, null, {
       ...DEFAULT_TESLAMATE_CONFIG,
       tripFields: ["trip_distance", "trip_max_speed", "trip_energy"],
-      exportLiveFields: ["battery", "power", "tpms_fl"],
+      exportLiveFields: ["battery", "power", "tires"],
     }, "kmh");
 
     expect(texts.length).toBeGreaterThan(0);
@@ -118,7 +118,7 @@ describe("drawTripMetrics", () => {
     drawTripMetrics(ctx, 1280, 720, TRIP, SAMPLE, {
       ...DEFAULT_TESLAMATE_CONFIG,
       tripFields: [],
-      exportLiveFields: ["tpms_fl", "tpms_fr", "tpms_rl", "tpms_rr"],
+      exportLiveFields: ["tires"],
     }, "kmh");
 
     const joined = texts.join(" ");

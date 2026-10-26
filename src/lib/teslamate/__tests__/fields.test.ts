@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LIVE_FIELDS, TRIP_FIELDS, fieldByKey, type Units } from "@/lib/teslamate/fields";
+import { LIVE_FIELDS, TRIP_FIELDS, fieldByKey, tireGridCells, type Units } from "@/lib/teslamate/fields";
 import type { TripSummary } from "@/lib/teslamate/types";
 
 const METRIC: Units = {
@@ -60,8 +60,17 @@ describe("unit conversion", () => {
   });
 
   it("converts pressure between bar and psi", () => {
-    expect(key("tpms_fl").format(2.9, IMPERIAL)).toBe("42.1 psi");
-    expect(key("tpms_fl").format(2.9, METRIC)).toBe("2.9 bar");
+    expect(key("tires").format(2.9, IMPERIAL)).toBe("—");
+    expect(key("tires").format(2.9, METRIC)).toBe("—");
+    // The grid component formats each tire individually.
+    expect(tireGridCells(
+      { tMs: 0, tpmsFl: 2.9, tpmsFr: null, tpmsRl: null, tpmsRr: null } as any,
+      IMPERIAL,
+    )[0].text).toBe("42.1 psi");
+    expect(tireGridCells(
+      { tMs: 0, tpmsFl: 2.9, tpmsFr: null, tpmsRl: null, tpmsRr: null } as any,
+      METRIC,
+    )[0].text).toBe("2.9 bar");
   });
 
   it("converts temperature between C and F", () => {
@@ -198,10 +207,7 @@ describe("catalogue integrity", () => {
       "range",
       "odometer",
       "elevation",
-      "tpms_fl",
-      "tpms_fr",
-      "tpms_rl",
-      "tpms_rr",
+      "tires",
       "outside_temp",
       "inside_temp",
     ]);

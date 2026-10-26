@@ -26,9 +26,9 @@ describe("TripMetricsConfig", () => {
   it("switches a live field on and persists it", () => {
     render(<TripMetricsConfig onClose={() => {}} onChange={() => {}} />);
 
-    fireEvent.click(screen.getByLabelText("Live: Tire pressure FL"));
+    fireEvent.click(screen.getByLabelText("Live: Tire pressure"));
 
-    expect(stored().liveFields).toContain("tpms_fl");
+    expect(stored().liveFields).toContain("tires");
   });
 
   it("persists the unit choices", () => {
